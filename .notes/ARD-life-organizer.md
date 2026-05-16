@@ -1261,12 +1261,30 @@ export async function handler(event, context) {
 **Alternatives Considered:** User prompts (annoying), default heuristics (inaccurate)  
 **Status:** Approved
 
-### Decision 6: Artifact First, Then PWA
+### Decision 6: Local Vite Dev First, Then Netlify PWA
 **Date:** 2026-05-16  
-**Decision:** Start with Claude.ai artifact, migrate to standalone PWA after validation  
-**Rationale:** Zero deployment complexity for MVP, can validate concept quickly  
-**Alternatives Rejected:** Start with full deployment (slower iteration)  
-**Status:** Approved
+**Decision:** Build as a local Vite + React app from day one, deploy to Netlify as PWA  
+**Rationale:** Claude.ai artifacts run in a sandboxed iframe with no filesystem access — they can't connect to local MCP servers or read local Beads databases, which are core Phase 2 requirements. A local dev server costs nothing and is the right foundation for the full architecture.  
+**Alternatives Rejected:**  
+- Claude.ai artifact first: appealing for zero-setup demos but is a dead end — cannot access local files, MCP servers, or anything outside the browser sandbox  
+- Next.js: optimized for Vercel + SSR, neither of which we need; fighting it to deploy static files to Netlify adds friction  
+**Status:** Supersedes original "artifact first" decision. Approved 2026-05-16.
+
+---
+
+### Decision 7: Source as Context — No Manual Classification
+**Date:** 2026-05-16  
+**Decision:** Use `source` (beads | email | calendar | manual) as the primary differentiator between task types. No manual "context" or "work vs. personal" field.  
+**Rationale:** There are two fundamentally different kinds of items in a life organizer:
+- **Process tasks** — structured work belonging to a larger project/workflow (e.g. building a feature, filing a bug). Beads models these; they have dependencies, states, and belong to a system.
+- **Life tasks** — one-off actions arising from events (answer an email, run an errand, RSVP to a dinner). Ephemeral, event-driven, don't belong to a project.
+
+The source field captures this distinction automatically, without asking the user to categorize anything. A task that came from Beads is a process task. A task that came from email is a life task. A manually entered task is assumed to be a life task. This enables future "discovery" — when MCP integrations pull from Gmail, Calendar, and Beads, the source is set automatically.  
+**Alternatives Rejected:**  
+- Manual `context` field (work/personal): requires user effort on every task; wrong axis anyway (a personal errand vs. a Beads engineering task is source-driven, not a user label)  
+- Category field as differentiator: too fine-grained, still manual  
+**Data model:** each task has `source: 'manual' | 'beads' | 'email' | 'calendar'` and `sourceUrl: string | null` (deep link back to origin). Set at creation time by the integration that produced the task.  
+**Status:** Approved 2026-05-16.
 
 ---
 
