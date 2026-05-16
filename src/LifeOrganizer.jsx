@@ -126,7 +126,7 @@ function QuickStats({ tasks, filter, onFilterChange }) {
   ];
 
   return (
-    <div className="grid grid-cols-4 gap-3">
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
       {stats.map(({ label, filterKey, value, color, ring }) => {
         const active = filter === filterKey;
         return (
