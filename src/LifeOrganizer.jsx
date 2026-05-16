@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useBeadsTasks } from './useBeadsTasks.js';
 
 // ─── Mock calendar events ────────────────────────────────────────────────────
 const MOCK_CALENDAR = [
@@ -359,11 +360,37 @@ function TaskList({ tasks, onStatusChange, onDelete, filter, onFilterChange }) {
   );
 }
 
+// ─── Beads task row (read-only — mutations go through bd CLI) ─────────────────
+function BeadsTaskRow({ task }) {
+  const priorityBadge = { high: 'bg-red-100 text-red-700', medium: 'bg-yellow-100 text-yellow-700', low: 'bg-gray-100 text-gray-600' };
+  return (
+    <div className="flex items-start gap-3 py-2.5 border-b border-gray-100 last:border-0">
+      <span className="text-indigo-300 text-xs mt-0.5">◆</span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <p className="text-sm text-gray-800 truncate">{task.title}</p>
+          <span className="text-xs text-gray-300 shrink-0">{task.beadsId}</span>
+        </div>
+        <div className="flex flex-wrap gap-1.5 mt-1">
+          <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${priorityBadge[task.priority]}`}>{task.priority}</span>
+          <span className="text-xs text-gray-400">{task.category}</span>
+          {task.blockedBy?.length > 0 && (
+            <span className="text-xs text-orange-500">blocked by {task.blockedBy.length}</span>
+          )}
+          <SourceBadge source="beads" sourceUrl={task.sourceUrl} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main app ─────────────────────────────────────────────────────────────────
 export default function LifeOrganizer() {
   const [tasks, setTasks] = useState([]);
   const [filter, setFilter] = useState('active');
   const [loaded, setLoaded] = useState(false);
+
+  const { tasks: beadsTasks, loading: beadsLoading, error: beadsError, refresh: refreshBeads } = useBeadsTasks();
 
   useEffect(() => {
     storageLoad('lo-tasks').then(saved => {
@@ -376,12 +403,14 @@ export default function LifeOrganizer() {
     if (loaded) storageSave('lo-tasks', tasks);
   }, [tasks, loaded]);
 
-  const addTask    = useCallback((task) => setTasks(prev => [task, ...prev]), []);
+  const addTask      = useCallback((task) => setTasks(prev => [task, ...prev]), []);
   const updateStatus = useCallback((id, status) => setTasks(prev => prev.map(t => t.id === id ? { ...t, status } : t)), []);
   const deleteTask   = useCallback((id) => setTasks(prev => prev.filter(t => t.id !== id)), []);
   const completeTask = useCallback((id) => setTasks(prev => prev.map(t => t.id === id ? { ...t, status: 'completed' } : t)), []);
 
-  const recommendations = getRecommendations(tasks, MOCK_CALENDAR);
+  // Recommendations draw from both manual tasks and ready Beads tasks
+  const allTasksForReco = [...tasks, ...beadsTasks];
+  const recommendations = getRecommendations(allTasksForReco, MOCK_CALENDAR);
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
@@ -396,10 +425,10 @@ export default function LifeOrganizer() {
           <div className="text-xs text-gray-400">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</div>
         </div>
 
-        {/* Stats — clickable filters */}
+        {/* Stats — clickable filters (manual tasks only for now) */}
         <QuickStats tasks={tasks} filter={filter} onFilterChange={setFilter} />
 
-        {/* Recommendations */}
+        {/* Recommendations — across all sources */}
         {recommendations.length > 0 && (
           <Section title="Recommended now" subtitle="based on deadlines & available time" badge={recommendations.length}>
             <div className="space-y-2">
@@ -409,6 +438,32 @@ export default function LifeOrganizer() {
             </div>
           </Section>
         )}
+
+        {/* Beads — ready issues from this project */}
+        <Section
+          title="Beads — ready to work"
+          subtitle={beadsError ? 'server offline' : undefined}
+          badge={beadsTasks.length}
+          defaultOpen={true}
+        >
+          {beadsError ? (
+            <div className="text-xs text-gray-400 py-2">
+              <p>Can't reach local API server. Run <code className="bg-gray-100 px-1 rounded">npm start</code> to enable.</p>
+            </div>
+          ) : beadsLoading ? (
+            <p className="text-xs text-gray-400 py-2">Loading…</p>
+          ) : beadsTasks.length === 0 ? (
+            <p className="text-xs text-gray-400 py-2">No unblocked issues — run <code className="bg-gray-100 px-1 rounded">bd ready</code> to check.</p>
+          ) : (
+            <div>
+              {beadsTasks.map(task => <BeadsTaskRow key={task.id} task={task} />)}
+              <button
+                onClick={refreshBeads}
+                className="mt-2 text-xs text-gray-400 hover:text-gray-600"
+              >↺ refresh</button>
+            </div>
+          )}
+        </Section>
 
         {/* Two-column: Add Task + Calendar */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -420,7 +475,7 @@ export default function LifeOrganizer() {
           </Section>
         </div>
 
-        {/* Task list */}
+        {/* Manual task list */}
         <TaskList
           tasks={tasks}
           onStatusChange={updateStatus}
@@ -429,7 +484,7 @@ export default function LifeOrganizer() {
           onFilterChange={setFilter}
         />
 
-        <p className="text-xs text-center text-gray-300">Tasks saved locally · Phase 1 MVP</p>
+        <p className="text-xs text-center text-gray-300">Tasks saved locally · Phase 2</p>
       </div>
     </div>
   );
