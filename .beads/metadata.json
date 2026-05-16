@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "life_organizer",
+  "project_id": "6772feee-2799-4943-ab40-61b21d2f0a4e"
+}
