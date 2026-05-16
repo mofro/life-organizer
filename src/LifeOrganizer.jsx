@@ -373,7 +373,7 @@ function BeadsTaskRow({ task }) {
         </div>
         <div className="flex flex-wrap gap-1.5 mt-1">
           <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${priorityBadge[task.priority]}`}>{task.priority}</span>
-          <span className="text-xs text-gray-400">{task.category}</span>
+          {task.project && <span className="text-xs text-gray-400">{task.project}</span>}
           {task.blockedBy?.length > 0 && (
             <span className="text-xs text-orange-500">blocked by {task.blockedBy.length}</span>
           )}

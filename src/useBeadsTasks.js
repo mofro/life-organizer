@@ -14,18 +14,19 @@ export function useBeadsTasks() {
       const raw = await res.json();
       // Normalise bd --json shape to match our task model
       setTasks(raw.map(issue => ({
-        id:          issue.id,
-        title:       issue.title,
-        category:    issue.type   || 'task',
-        priority:    normalisePriority(issue.priority),
+        id:           issue.id,
+        title:        issue.title,
+        category:     issue.type || 'task',
+        priority:     normalisePriority(issue.priority),
         timeRequired: null,
-        deadline:    issue.deadline || null,
-        status:      normaliseStatus(issue.status),
-        source:      'beads',
-        sourceUrl:   null,          // could link to a web UI if one exists
-        beadsId:     issue.id,
-        blockedBy:   issue.blocked_by || [],
-        createdAt:   issue.created_at,
+        deadline:     issue.deadline || null,
+        status:       normaliseStatus(issue.status),
+        source:       'beads',
+        sourceUrl:    null,
+        beadsId:      issue.id,
+        project:      projectFromId(issue.id),
+        blockedBy:    issue.blocked_by || [],
+        createdAt:    issue.created_at,
       })));
     } catch (e) {
       setError(e.message);
@@ -37,6 +38,12 @@ export function useBeadsTasks() {
   useEffect(() => { fetch(); }, [fetch]);
 
   return { tasks, loading, error, refresh: fetch };
+}
+
+// "HeroHeaven-4n7" → "HeroHeaven", "mnews-ayh" → "mnews"
+function projectFromId(id) {
+  const dash = id.lastIndexOf('-');
+  return dash > 0 ? id.slice(0, dash) : id;
 }
 
 function normalisePriority(p) {
