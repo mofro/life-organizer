@@ -3,25 +3,53 @@ import cors from 'cors';
 import { execSync } from 'child_process';
 import { homedir } from 'os';
 import { resolve } from 'path';
+import { existsSync } from 'fs';
 
-// Use ~/beads-global for the cross-project unified view (bdg).
-// Per-project bd stays untouched — we're read-only here.
 const BDG_DIR = resolve(homedir(), 'beads-global');
 const PORT = 3001;
+
+// --- Startup validation ---
+// Fail loudly so "server offline" in the UI has an obvious cause in the logs.
+
+let BD_PATH = null;
+let BD_VERSION = null;
+
+try {
+  BD_PATH = execSync('which bd', { encoding: 'utf8', shell: '/bin/zsh' }).trim();
+  BD_VERSION = execSync('bd --version', { encoding: 'utf8', shell: '/bin/zsh' }).trim();
+  console.log(`[server] bd found: ${BD_PATH} (${BD_VERSION})`);
+} catch {
+  console.error('[server] FATAL: bd not found in PATH. Install Beads and ensure it is on PATH for /bin/zsh.');
+  console.error('[server] Run: which bd   (in a zsh shell, not sh)');
+  process.exit(1);
+}
+
+if (!existsSync(BDG_DIR)) {
+  console.error(`[server] FATAL: beads-global directory not found: ${BDG_DIR}`);
+  console.error('[server] Create it with: mkdir ~/beads-global && cd ~/beads-global && bd init');
+  process.exit(1);
+}
+
+console.log(`[server] beads-global: ${BDG_DIR}`);
+
+// --- App setup ---
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 function bd(args, { sync = false } = {}) {
-  // Mirror what bdg shell function does: optionally sync first, then bd.
   const syncCmd = sync ? 'bd repo sync > /dev/null 2>&1 && ' : '';
   const cmd = `${syncCmd}bd ${args} --json`;
   const raw = execSync(cmd, { cwd: BDG_DIR, encoding: 'utf8', shell: '/bin/zsh' });
-  // bd list appends a non-JSON footer line — strip anything after the closing ]
   const jsonEnd = raw.lastIndexOf(']');
   return JSON.parse(jsonEnd >= 0 ? raw.slice(0, jsonEnd + 1) : raw);
 }
+
+// GET /api/health — liveness + environment info
+app.get('/api/health', (_req, res) => {
+  res.json({ ok: true, bdPath: BD_PATH, bdVersion: BD_VERSION, bdgDir: BDG_DIR });
+});
 
 // GET /api/beads/ready — sync then return unblocked open issues across all projects
 app.get('/api/beads/ready', (_req, res) => {
@@ -49,7 +77,6 @@ app.get('/api/beads/list', (req, res) => {
 app.get('/api/beads/show/:id', (req, res) => {
   try {
     const result = bd(`show ${req.params.id}`);
-    // bd show --json returns an array; unwrap to single object
     res.json(Array.isArray(result) ? result[0] : result);
   } catch (e) {
     res.status(404).json({ error: e.message });
@@ -66,6 +93,5 @@ app.get('/api/beads/stats', (_req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Beads API server → ${BDG_DIR}`);
-  console.log(`Listening on http://localhost:${PORT}`);
+  console.log(`[server] Listening on http://localhost:${PORT}`);
 });

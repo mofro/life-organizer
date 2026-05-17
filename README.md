@@ -119,10 +119,45 @@ life-organizer/
 git clone https://github.com/YOUR-USERNAME/life-organizer.git
 cd life-organizer
 
-# Install dependencies (Phase 1+)
+# Install dependencies
 npm install
 
-# Beads is already initialized - view tasks
+# Validate prerequisites
+npm run check
+
+# Start dev server (Vite + local API server)
+npm start
+```
+
+> **Note:** Use `npm start` — not `npm run dev` (frontend only) and not `npm start dev` (invalid).
+
+### Troubleshooting
+
+**Beads section shows "server offline"**
+
+The local API server failed to start. Check the terminal output for `[server]` lines.
+
+Common causes:
+
+| Symptom | Fix |
+|---|---|
+| `bd not found in PATH` | Ensure Beads is installed and `/bin/zsh` can find it: `which bd` in a zsh terminal |
+| `beads-global not found` | `mkdir ~/beads-global && cd ~/beads-global && bd init` |
+| Port 3001 in use | `lsof -ti:3001 \| xargs kill` then restart |
+| Dependencies missing | `npm install` |
+
+Run `npm run check` to diagnose all prerequisites at once.
+
+**Verify the API server is running:**
+
+```bash
+curl http://localhost:3001/api/health
+# Expected: {"ok":true,"bdPath":"...","bdVersion":"...","bdgDir":"..."}
+```
+
+### Beads is already initialized - view tasks
+
+```bash
 bd ready
 ```
 

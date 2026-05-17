@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "server": "node server/index.js",
-    "start": "concurrently \"npm run server\" \"npm run dev\"",
+    "start": "concurrently --names \"server,vite\" --prefix-colors \"blue,green\" \"npm run server\" \"npm run dev\"",
+    "check": "node server/check.js",
     "build": "NODE_OPTIONS=--experimental-global-webcrypto vite build",
     "lint": "eslint .",
     "preview": "vite preview"
