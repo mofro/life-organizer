@@ -1288,6 +1288,25 @@ The source field captures this distinction automatically, without asking the use
 
 ---
 
+### Decision 8: beads-global as Foundation for Beads MCP Server
+**Date:** 2026-05-17  
+**Decision:** The `~/beads-global` project (cross-project Beads database + localhost dashboard) should be evaluated as the foundation for the Beads MCP server before building from scratch in TypeScript.  
+**Rationale:** `dashboard.py` already wraps the `bd` CLI over HTTP (`fetch_issues`, `fetch_issue` via subprocess) — which is structurally identical to what the planned Beads MCP server would do. The architectural difference is the consumer (browser vs. LLM via MCP protocol) and transport (plain HTTP/JSON vs. MCP stdio or HTTP). Extracting and re-skinning that wrapping logic avoids duplicating the `bd` CLI integration work.  
+**Key facts about beads-global (as of 2026-05-17):**
+- Aggregates issues from all project repos (`mnews`, `memento-solvere`, `HeroHeaven`, `life-organizer`) via `bd repo sync`
+- `GET /api/issues?sync=1` — full issue list, optional repo sync
+- `GET /api/issue/:id` — single issue detail (description, notes, design, external_ref)
+- Lives at `~/beads-global`, repo at `github.com/mofro/beads-global` (private)
+- The `bd` CLI is the real engine; the Python layer is thin subprocess wrapping
+
+**Recommended action before Week 2:** Before building a TypeScript MCP server, assess whether a Python-based MCP server wrapping the existing `bd` CLI (using the same subprocess pattern as `dashboard.py`) is sufficient. The MCP SDK has a Python implementation (`mcp` on PyPI) that would make this a small extension of existing code rather than a rewrite.  
+**Alternatives:**
+- TypeScript MCP from scratch (as currently planned in `plan.md`) — more portable, npm-publishable as `@life-organizer/beads-mcp`, but duplicates the bd-wrapping work already done
+- Existing MCP server on npm — still unverified; search before building anything  
+**Status:** Assessment only — no decision made. Revisit when Phase 2 begins.
+
+---
+
 ## Open Questions
 
 ### Critical (Must Resolve Before Implementation)
@@ -1296,6 +1315,7 @@ The source field captures this distinction automatically, without asking the use
    - **Action:** Search npm, GitHub, MCP registry
    - **Timeline:** Before Week 2
    - **Owner:** Mo + Claude
+   - **Note:** See Decision 8 — also evaluate beads-global as a foundation before building
 
 2. **What's the Anthropic API budget?**
    - **Context:** Heavy Claude usage for recommendations
