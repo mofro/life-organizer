@@ -164,12 +164,16 @@ function RecommendationCard({ task, onComplete }) {
           <SourceBadge source={task.source} sourceUrl={task.sourceUrl} />
         </div>
       </div>
-      <button
-        onClick={() => onComplete(task.id)}
-        className="text-xs bg-white border border-gray-300 rounded px-2 py-1 hover:bg-gray-50 shrink-0"
-      >
-        Done
-      </button>
+      {task.source === 'beads' ? (
+        <span className="text-xs text-gray-300 shrink-0 pt-0.5">bd close {task.beadsId}</span>
+      ) : (
+        <button
+          onClick={() => onComplete(task.id)}
+          className="text-xs bg-white border border-gray-300 rounded px-2 py-1 hover:bg-gray-50 shrink-0"
+        >
+          Done
+        </button>
+      )}
     </div>
   );
 }
