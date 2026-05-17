@@ -364,26 +364,83 @@ function TaskList({ tasks, onStatusChange, onDelete, filter, onFilterChange }) {
   );
 }
 
-// ─── Beads task row (read-only — mutations go through bd CLI) ─────────────────
+// ─── Beads task row — accordion with lazy-loaded details ─────────────────────
 function BeadsTaskRow({ task }) {
+  const [open, setOpen]       = useState(false);
+  const [detail, setDetail]   = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const toggle = useCallback(async () => {
+    const next = !open;
+    setOpen(next);
+    if (next && !detail) {
+      setLoading(true);
+      try {
+        const res = await window.fetch(`/api/beads/show/${task.beadsId}`);
+        if (res.ok) setDetail(await res.json());
+      } catch {}
+      setLoading(false);
+    }
+  }, [open, detail, task.beadsId]);
+
   const priorityBadge = { high: 'bg-red-100 text-red-700', medium: 'bg-yellow-100 text-yellow-700', low: 'bg-gray-100 text-gray-600' };
+
   return (
-    <div className="flex items-start gap-3 py-2.5 border-b border-gray-100 last:border-0">
-      <span className="text-indigo-300 text-xs mt-0.5">◆</span>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <p className="text-sm text-gray-800 truncate">{task.title}</p>
-          <span className="text-xs text-gray-300 shrink-0">{task.beadsId}</span>
+    <div className="border-b border-gray-100 last:border-0">
+      {/* Summary row — click to expand */}
+      <button
+        onClick={toggle}
+        className="w-full flex items-start gap-3 py-2.5 text-left hover:bg-gray-50 rounded transition-colors"
+      >
+        <span className={`text-xs mt-0.5 transition-transform duration-150 text-indigo-300 ${open ? 'rotate-90' : ''}`}>▶</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <p className="text-sm text-gray-800 truncate">{task.title}</p>
+            <span className="text-xs text-gray-300 shrink-0">{task.beadsId}</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5 mt-1">
+            <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${priorityBadge[task.priority]}`}>{task.priority}</span>
+            {task.project && <span className="text-xs text-gray-400">{task.project}</span>}
+            {task.blockedBy?.length > 0 && (
+              <span className="text-xs text-orange-500">blocked by {task.blockedBy.length}</span>
+            )}
+            <SourceBadge source="beads" sourceUrl={task.sourceUrl} />
+          </div>
         </div>
-        <div className="flex flex-wrap gap-1.5 mt-1">
-          <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${priorityBadge[task.priority]}`}>{task.priority}</span>
-          {task.project && <span className="text-xs text-gray-400">{task.project}</span>}
-          {task.blockedBy?.length > 0 && (
-            <span className="text-xs text-orange-500">blocked by {task.blockedBy.length}</span>
+      </button>
+
+      {/* Detail panel */}
+      {open && (
+        <div className="ml-6 mb-3 space-y-2">
+          {loading ? (
+            <p className="text-xs text-gray-400">Loading…</p>
+          ) : detail ? (
+            <>
+              {detail.description && (
+                <DetailBlock label="Description" text={detail.description} />
+              )}
+              {detail.design && (
+                <DetailBlock label="Design" text={detail.design} />
+              )}
+              {detail.notes && (
+                <DetailBlock label="Notes" text={detail.notes} />
+              )}
+              <p className="text-xs text-gray-300 font-mono">bd close {task.beadsId}</p>
+            </>
+          ) : (
+            <p className="text-xs text-gray-400">Could not load details — is the local server running?</p>
           )}
-          <SourceBadge source="beads" sourceUrl={task.sourceUrl} />
         </div>
-      </div>
+      )}
+    </div>
+  );
+}
+
+function DetailBlock({ label, text }) {
+  return (
+    <div>
+      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">{label}</p>
+      <p className="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed">{text}</p>
     </div>
   );
 }

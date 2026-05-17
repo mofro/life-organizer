@@ -48,7 +48,9 @@ app.get('/api/beads/list', (req, res) => {
 // GET /api/beads/show/:id — single issue detail
 app.get('/api/beads/show/:id', (req, res) => {
   try {
-    res.json(bd(`show ${req.params.id}`));
+    const result = bd(`show ${req.params.id}`);
+    // bd show --json returns an array; unwrap to single object
+    res.json(Array.isArray(result) ? result[0] : result);
   } catch (e) {
     res.status(404).json({ error: e.message });
   }
