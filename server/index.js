@@ -26,7 +26,7 @@ function bd(args, { sync = false } = {}) {
 // GET /api/beads/ready — sync then return unblocked open issues across all projects
 app.get('/api/beads/ready', (_req, res) => {
   try {
-    res.json(bd('ready', { sync: true }));
+    res.json(bd('ready --limit 0', { sync: true }));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
