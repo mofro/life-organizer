@@ -364,24 +364,43 @@ function TaskList({ tasks, onStatusChange, onDelete, filter, onFilterChange }) {
   );
 }
 
-// ─── Beads task row — accordion with lazy-loaded details ─────────────────────
-function BeadsTaskRow({ task }) {
-  const [open, setOpen]       = useState(false);
-  const [detail, setDetail]   = useState(null);
-  const [loading, setLoading] = useState(false);
+// ─── Beads task row — accordion with lazy-loaded details + write-back ────────
+function BeadsTaskRow({ task, onClaim, onClose, serverOnline }) {
+  const [open, setOpen]           = useState(false);
+  const [detail, setDetail]       = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [action, setAction]       = useState(null);   // 'claiming' | 'closing' | null
+  const [closing, setClosing]     = useState(false);  // inline reason form open
+  const [reason, setReason]       = useState('');
+  const [actionError, setActionError] = useState(null);
 
   const toggle = useCallback(async () => {
     const next = !open;
     setOpen(next);
     if (next && !detail) {
-      setLoading(true);
+      setDetailLoading(true);
       try {
         const res = await window.fetch(`/api/beads/show/${task.beadsId}`);
         if (res.ok) setDetail(await res.json());
       } catch {}
-      setLoading(false);
+      setDetailLoading(false);
     }
   }, [open, detail, task.beadsId]);
+
+  const handleClaim = useCallback(async () => {
+    setAction('claiming');
+    setActionError(null);
+    try { await onClaim(task.beadsId); }
+    catch (e) { setActionError(e.message); setAction(null); }
+  }, [onClaim, task.beadsId]);
+
+  const handleClose = useCallback(async () => {
+    if (!reason.trim()) return;
+    setAction('closing');
+    setActionError(null);
+    try { await onClose(task.beadsId, reason.trim()); }
+    catch (e) { setActionError(e.message); setAction(null); setClosing(false); }
+  }, [onClose, task.beadsId, reason]);
 
   const priorityBadge = { high: 'bg-red-100 text-red-700', medium: 'bg-yellow-100 text-yellow-700', low: 'bg-gray-100 text-gray-600' };
 
@@ -412,7 +431,7 @@ function BeadsTaskRow({ task }) {
       {/* Detail panel */}
       {open && (
         <div className="ml-6 mb-3 space-y-2">
-          {loading ? (
+          {detailLoading ? (
             <p className="text-xs text-gray-400">Loading…</p>
           ) : detail ? (
             <>
@@ -431,11 +450,69 @@ function BeadsTaskRow({ task }) {
               {detail.external_ref && (
                 <ExternalRef value={detail.external_ref} description={detail.description} />
               )}
-              <p className="text-xs text-gray-300 font-mono pt-1">bd close {task.beadsId}</p>
             </>
           ) : (
             <p className="text-xs text-gray-400">Could not load details — is the local server running?</p>
           )}
+
+          {/* Action buttons */}
+          <div className="pt-1 flex flex-col gap-1.5">
+            {actionError && (
+              <p className="text-xs text-red-500">{actionError}</p>
+            )}
+            {!closing ? (
+              <div className="flex gap-2 flex-wrap">
+                {task.status === 'pending' && serverOnline && (
+                  <button
+                    onClick={e => { e.stopPropagation(); handleClaim(); }}
+                    disabled={!!action}
+                    className="text-xs bg-indigo-50 border border-indigo-200 text-indigo-700 rounded px-2 py-1 hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {action === 'claiming' ? 'Claiming…' : 'Claim'}
+                  </button>
+                )}
+                {serverOnline ? (
+                  <button
+                    onClick={e => { e.stopPropagation(); setClosing(true); setActionError(null); }}
+                    disabled={!!action}
+                    className="text-xs bg-green-50 border border-green-200 text-green-700 rounded px-2 py-1 hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Close…
+                  </button>
+                ) : (
+                  <span className="text-xs text-gray-300 font-mono">bd close {task.beadsId}</span>
+                )}
+              </div>
+            ) : (
+              <div className="flex gap-2 items-center">
+                <input
+                  type="text"
+                  value={reason}
+                  onChange={e => setReason(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') handleClose();
+                    if (e.key === 'Escape') { setClosing(false); setReason(''); }
+                  }}
+                  placeholder="Reason for closing…"
+                  autoFocus
+                  className="flex-1 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-green-400"
+                />
+                <button
+                  onClick={handleClose}
+                  disabled={!reason.trim() || !!action}
+                  className="text-xs bg-green-600 text-white rounded px-2 py-1 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                >
+                  {action === 'closing' ? 'Closing…' : 'Close'}
+                </button>
+                <button
+                  onClick={() => { setClosing(false); setReason(''); }}
+                  className="text-xs text-gray-400 hover:text-gray-600 shrink-0"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -476,7 +553,7 @@ export default function LifeOrganizer() {
   const [filter, setFilter] = useState('active');
   const [loaded, setLoaded] = useState(false);
 
-  const { tasks: beadsTasks, loading: beadsLoading, error: beadsError, refresh: refreshBeads } = useBeadsTasks();
+  const { tasks: beadsTasks, loading: beadsLoading, error: beadsError, refresh: refreshBeads, claim: claimBead, close: closeBead } = useBeadsTasks();
 
   useEffect(() => {
     storageLoad('lo-tasks').then(saved => {
@@ -542,7 +619,15 @@ export default function LifeOrganizer() {
             <p className="text-xs text-gray-400 py-2">No unblocked issues — run <code className="bg-gray-100 px-1 rounded">bd ready</code> to check.</p>
           ) : (
             <div>
-              {beadsTasks.map(task => <BeadsTaskRow key={task.id} task={task} />)}
+              {beadsTasks.map(task => (
+                <BeadsTaskRow
+                  key={task.id}
+                  task={task}
+                  onClaim={claimBead}
+                  onClose={closeBead}
+                  serverOnline={!beadsError}
+                />
+              ))}
               <button
                 onClick={refreshBeads}
                 className="mt-2 text-xs text-gray-400 hover:text-gray-600"

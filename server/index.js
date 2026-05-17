@@ -83,6 +83,34 @@ app.get('/api/beads/show/:id', (req, res) => {
   }
 });
 
+// POST /api/beads/claim/:id — mark issue in_progress and assign to current user
+app.post('/api/beads/claim/:id', (req, res) => {
+  try {
+    execSync(`bd update ${req.params.id} --claim`, {
+      cwd: BDG_DIR, encoding: 'utf8', shell: '/bin/zsh'
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/beads/close/:id — close issue with a required reason
+app.post('/api/beads/close/:id', (req, res) => {
+  const reason = req.body?.reason?.trim();
+  if (!reason) return res.status(400).json({ error: 'reason is required' });
+  try {
+    // Escape single quotes in reason to avoid shell injection
+    const safe = reason.replace(/'/g, "'\\''");
+    execSync(`bd close ${req.params.id} --reason='${safe}'`, {
+      cwd: BDG_DIR, encoding: 'utf8', shell: '/bin/zsh'
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // GET /api/beads/stats
 app.get('/api/beads/stats', (_req, res) => {
   try {
