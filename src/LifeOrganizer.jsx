@@ -425,7 +425,13 @@ function BeadsTaskRow({ task }) {
               {detail.notes && (
                 <DetailBlock label="Notes" text={detail.notes} />
               )}
-              <p className="text-xs text-gray-300 font-mono">bd close {task.beadsId}</p>
+              {detail.acceptance && (
+                <DetailBlock label="Acceptance" text={detail.acceptance} />
+              )}
+              {detail.external_ref && (
+                <ExternalRef value={detail.external_ref} description={detail.description} />
+              )}
+              <p className="text-xs text-gray-300 font-mono pt-1">bd close {task.beadsId}</p>
             </>
           ) : (
             <p className="text-xs text-gray-400">Could not load details — is the local server running?</p>
@@ -441,6 +447,25 @@ function DetailBlock({ label, text }) {
     <div>
       <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">{label}</p>
       <p className="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed">{text}</p>
+    </div>
+  );
+}
+
+function ExternalRef({ value, description }) {
+  // Try to pull a full URL from the description first (e.g. "Tracks https://github.com/...")
+  const urlMatch = description?.match(/https?:\/\/[^\s)]+/);
+  const url = urlMatch?.[0] ?? null;
+
+  return (
+    <div>
+      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">External ref</p>
+      {url ? (
+        <a href={url} target="_blank" rel="noreferrer"
+          className="text-xs text-sky-600 hover:underline break-all"
+        >{value} ↗</a>
+      ) : (
+        <span className="text-xs text-gray-600">{value}</span>
+      )}
     </div>
   );
 }
