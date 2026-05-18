@@ -18,7 +18,8 @@ netlify.toml
 
 # Dev tooling and docs
 .notes/
-.beads/
+# .beads/ is intentionally included — project issues ship with the image.
+# Railway uses BEADS_DIR=/app so bd reads from /app/.beads/ directly.
 *.md
 AGENTS.md
 CLAUDE.md

@@ -5,7 +5,10 @@ import { homedir } from 'os';
 import { resolve } from 'path';
 import { existsSync } from 'fs';
 
-const BDG_DIR = resolve(homedir(), 'beads-global');
+// BEADS_DIR env var overrides the default.
+// On Railway: set BEADS_DIR=/app (the project root, which ships with .beads/ in the image).
+// Locally: leave unset to use ~/beads-global as before.
+const BDG_DIR = process.env.BEADS_DIR || resolve(homedir(), 'beads-global');
 const PORT = process.env.PORT || 3001;
 
 // --- Startup validation ---
@@ -39,7 +42,8 @@ app.use(cors());
 app.use(express.json());
 
 function bd(args, { sync = false } = {}) {
-  const syncCmd = sync ? 'bd repo sync > /dev/null 2>&1 && ' : '';
+  // Use ; not && for sync — failure (e.g. no remote configured) must not block reads.
+  const syncCmd = sync ? 'bd repo sync > /dev/null 2>&1 ; ' : '';
   const cmd = `${syncCmd}bd ${args} --json`;
   const raw = execSync(cmd, { cwd: BDG_DIR, encoding: 'utf8', shell: '/bin/bash' });
   const jsonEnd = raw.lastIndexOf(']');
