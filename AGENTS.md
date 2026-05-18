@@ -7,10 +7,19 @@ This project uses **bd** (beads) for issue tracking. Run `bd prime` for full wor
 ```bash
 bd ready              # Find available work
 bd show <id>          # View issue details
-bd update <id> --claim  # Claim work atomically
+bd update <id> --description="..."  # Edit description to add Scenarios before claiming
+bd update <id> --claim  # Claim work atomically (blocked if Scenarios unfilled)
 bd close <id>         # Complete work
 bd dolt push          # Push beads data to remote
 ```
+
+## Rules
+
+- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
+- Fill in `## Scenarios` BEFORE claiming — the pre-commit hook blocks claims with unfilled
+  placeholders. Placeholder text is: `_Fill in before claiming._`
+- Run `bd prime` for detailed command reference and session close protocol
+- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
 
 ## Non-Interactive Shell Commands
 

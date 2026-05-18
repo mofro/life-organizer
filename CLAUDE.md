@@ -62,8 +62,42 @@ _Add your build and test commands here_
 
 ## Architecture Overview
 
-_Add a brief overview of your project architecture_
+Event-driven intelligence system. Specialised agents triggered by a finite
+typed event set, sharing a common World State (Supabase), with Claude invoked
+at exactly three points: Intake parsing, Pattern Analysis, and on-demand
+Context Reasoning. Everything else is a deterministic Rules Engine.
+
+Full design: `.notes/ARD-v2-system-architecture.md`
+Stack: React + Vite PWA → Netlify → Supabase (World State) → Railway
+(Beads Service) → Dolt remote (beads-global sync)
 
 ## Conventions & Patterns
 
-_Add your project-specific conventions here_
+### Scenario-Driven Development
+
+Every claimable issue (open, non-epic) must have its `## Scenarios` section
+filled in BEFORE the issue is claimed. The pre-commit hook enforces this — a
+claim commit will be blocked if the placeholder text is still present.
+
+When to fill in: before running `bd update <id> --claim`. Read the issue
+description, consult ARD v2, write 2–4 scenarios covering the happy path and
+at least one edge or failure case.
+
+Format:
+
+```
+## Scenarios
+
+- Given [initial state or precondition]
+  When [trigger, action, or event]
+  Then [expected outcome, including side effects]
+
+- Given [another context]
+  When [action]
+  Then [outcome]
+```
+
+Scope: 2–4 scenarios per issue. Cover the success path, one failure or edge
+case, and any cooldown or deduplication behaviour where relevant. Do not write
+exhaustive test suites — the goal is alignment before implementation, not a
+QA spec.

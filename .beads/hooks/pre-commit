@@ -1,4 +1,59 @@
 #!/usr/bin/env sh
+# --- BEGIN SCENARIO GATE ---
+# Block claiming an issue if its ## Scenarios section has not been filled in.
+if git diff --cached --name-only 2>/dev/null | grep -q '\.beads/issues\.jsonl'; then
+  python3 - <<'PYEOF'
+import json, subprocess, sys
+
+PLACEHOLDER = '_Fill in before claiming._'
+
+def load_jsonl(text):
+    issues = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            i = json.loads(line)
+            issues[i['id']] = i
+        except Exception:
+            pass
+    return issues
+
+r = subprocess.run(['git', 'show', ':0:.beads/issues.jsonl'], capture_output=True, text=True)
+if r.returncode != 0:
+    sys.exit(0)
+staged = load_jsonl(r.stdout)
+
+r2 = subprocess.run(['git', 'show', 'HEAD:.beads/issues.jsonl'], capture_output=True, text=True)
+head = load_jsonl(r2.stdout) if r2.returncode == 0 else {}
+
+errors = []
+for issue_id, issue in staged.items():
+    old_status = head.get(issue_id, {}).get('status', '')
+    new_status = issue.get('status', '')
+    if new_status == 'in_progress' and old_status != 'in_progress':
+        desc = issue.get('description', '')
+        if '## Scenarios' not in desc:
+            errors.append(f'  {issue_id}: missing ## Scenarios section')
+        elif PLACEHOLDER in desc:
+            errors.append(f'  {issue_id}: ## Scenarios not filled in -- replace the placeholder before claiming')
+
+if errors:
+    print('', file=sys.stderr)
+    print('beads: BLOCKED -- fill in Scenarios before claiming:', file=sys.stderr)
+    for e in errors:
+        print(e, file=sys.stderr)
+    print('', file=sys.stderr)
+    print('  Add Given/When/Then scenarios to the issue description,', file=sys.stderr)
+    print('  then re-run: bd update <id> --claim', file=sys.stderr)
+    print('', file=sys.stderr)
+    sys.exit(1)
+PYEOF
+  [ $? -ne 0 ] && exit 1
+fi
+# --- END SCENARIO GATE ---
+
 # --- BEGIN BEADS INTEGRATION v1.0.3 ---
 # This section is managed by beads. Do not remove these markers.
 if command -v bd >/dev/null 2>&1; then
