@@ -1,9 +1,26 @@
 # Implementation Plan - Life Organizer
 # Task-Driven Development with Beads CLI
 
-**Project:** Intelligent Life Organizer  
-**Timeline:** 4-6 weeks to production MVP  
-**Last Updated:** 2026-05-16
+**Project:** Intelligent Life Organizer
+**Timeline:** 4-6 weeks to production MVP
+**Last Updated:** 2026-05-17
+
+> ⚠️ **Architecture updated** — The implementation sequence below (Phases 1–5) reflects
+> the original feature-driven plan. The active architecture is described in
+> **[ARD v2](ARD-v2-system-architecture.md)**, which replaces the integration strategy
+> and introduces an infrastructure-first sequencing:
+>
+> 1. Dolt remote + deployed Beads Service
+> 2. Supabase World State schema
+> 3. Context Collector v1 (Beads + Tasks)
+> 4. Rules Engine v1 (4 seed rules)
+> 5. Calendar adapter (feeds Context Collector)
+> 6. Notification Dispatcher
+> 7. Intake Agents (Email, Corporate Bridge, Conversation)
+> 8. Pattern Analyzer + Context Reasoner
+>
+> See `bd ready` for the current Beads backlog, which reflects this sequence via epic
+> structure (EPIC-INFRA → EPIC-COLLECT → EPIC-INTEL → EPIC-INTAKE → EPIC-NOTIFY → EPIC-POLISH).
 
 ---
 

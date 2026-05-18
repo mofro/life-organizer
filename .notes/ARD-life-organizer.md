@@ -1,7 +1,13 @@
-# Architecture Requirements Document (ARD)
+> ⚠️ **SUPERSEDED** — This is ARD v1, preserved as a historical record of the project's
+> origin discussion, requirements evolution, and decisions 1–8. The active architecture
+> document is **[ARD v2](.notes/ARD-v2-system-architecture.md)** (2026-05-17), which
+> supersedes the integration strategy, deployment model assumptions, and implementation
+> sequence described here.
+
+# Architecture Requirements Document (ARD) v1 — Historical Record
 # Intelligent Life Organizer
 
-**Document Version:** 1.0  
+**Document Version:** 1.0
 **Date:** May 16, 2026  
 **Author:** Mo (with Claude Sonnet 4.5)  
 **Status:** Draft - Pre-Implementation
