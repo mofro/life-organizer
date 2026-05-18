@@ -6,7 +6,7 @@ import { resolve } from 'path';
 import { existsSync } from 'fs';
 
 const BDG_DIR = resolve(homedir(), 'beads-global');
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 // --- Startup validation ---
 // Fail loudly so "server offline" in the UI has an obvious cause in the logs.
@@ -15,12 +15,12 @@ let BD_PATH = null;
 let BD_VERSION = null;
 
 try {
-  BD_PATH = execSync('which bd', { encoding: 'utf8', shell: '/bin/zsh' }).trim();
-  BD_VERSION = execSync('bd --version', { encoding: 'utf8', shell: '/bin/zsh' }).trim();
+  BD_PATH = execSync('which bd', { encoding: 'utf8', shell: '/bin/bash' }).trim();
+  BD_VERSION = execSync('bd --version', { encoding: 'utf8', shell: '/bin/bash' }).trim();
   console.log(`[server] bd found: ${BD_PATH} (${BD_VERSION})`);
 } catch {
-  console.error('[server] FATAL: bd not found in PATH. Install Beads and ensure it is on PATH for /bin/zsh.');
-  console.error('[server] Run: which bd   (in a zsh shell, not sh)');
+  console.error('[server] FATAL: bd not found in PATH. Install Beads and ensure it is on PATH for /bin/bash.');
+  console.error('[server] Run: which bd   (in a bash shell)');
   process.exit(1);
 }
 
@@ -41,7 +41,7 @@ app.use(express.json());
 function bd(args, { sync = false } = {}) {
   const syncCmd = sync ? 'bd repo sync > /dev/null 2>&1 && ' : '';
   const cmd = `${syncCmd}bd ${args} --json`;
-  const raw = execSync(cmd, { cwd: BDG_DIR, encoding: 'utf8', shell: '/bin/zsh' });
+  const raw = execSync(cmd, { cwd: BDG_DIR, encoding: 'utf8', shell: '/bin/bash' });
   const jsonEnd = raw.lastIndexOf(']');
   return JSON.parse(jsonEnd >= 0 ? raw.slice(0, jsonEnd + 1) : raw);
 }
@@ -87,7 +87,7 @@ app.get('/api/beads/show/:id', (req, res) => {
 app.post('/api/beads/claim/:id', (req, res) => {
   try {
     execSync(`bd update ${req.params.id} --claim`, {
-      cwd: BDG_DIR, encoding: 'utf8', shell: '/bin/zsh'
+      cwd: BDG_DIR, encoding: 'utf8', shell: '/bin/bash'
     });
     res.json({ ok: true });
   } catch (e) {
@@ -103,7 +103,7 @@ app.post('/api/beads/close/:id', (req, res) => {
     // Escape single quotes in reason to avoid shell injection
     const safe = reason.replace(/'/g, "'\\''");
     execSync(`bd close ${req.params.id} --reason='${safe}'`, {
-      cwd: BDG_DIR, encoding: 'utf8', shell: '/bin/zsh'
+      cwd: BDG_DIR, encoding: 'utf8', shell: '/bin/bash'
     });
     res.json({ ok: true });
   } catch (e) {
