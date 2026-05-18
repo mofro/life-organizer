@@ -813,6 +813,65 @@ approval path.
 
 ---
 
+## Secret Management
+
+### Approach: Manual + 1Password (Option B)
+
+Secrets are managed directly in each platform's native store. A password manager
+(1Password or Bitwarden) holds the authoritative values. This table is the reference
+for *what exists and where* — values are never written here.
+
+### Three Platform Stores + One Dynamic Store
+
+```
+LOCAL MACHINE
+  .env.local  (never committed — in .gitignore)
+  → consumed by: Vite dev server, netlify dev, local Beads server
+
+NETLIFY
+  Site Settings → Environment Variables
+  → consumed by: deployed PWA (build-time), Netlify Functions (runtime)
+
+RAILWAY
+  Service → Variables tab
+  → consumed by: Beads Service container at runtime
+
+SUPABASE  (database rows, not env vars)
+  users table or encrypted Vault
+  → consumed by: Gmail OAuth refresh token, Calendar OAuth refresh token
+    (dynamic per-user tokens generated at OAuth flow time — not static credentials)
+```
+
+### Complete Secrets Inventory
+
+| Secret | Local `.env.local` | Netlify | Railway | Supabase |
+|---|---|---|---|---|
+| `ANTHROPIC_API_KEY` | ✓ | ✓ (Functions) | — | — |
+| `SUPABASE_URL` | ✓ | ✓ | ✓ | — |
+| `SUPABASE_ANON_KEY` | ✓ | ✓ (PWA client) | — | — |
+| `SUPABASE_SERVICE_ROLE_KEY` | ✓ | ✓ (Functions only) | ✓ | — |
+| `GOOGLE_CLIENT_ID` | ✓ | ✓ | — | — |
+| `GOOGLE_CLIENT_SECRET` | — | ✓ (Functions only) | — | — |
+| Gmail OAuth refresh token | — | — | — | ✓ per-user row |
+| Calendar OAuth refresh token | — | — | — | ✓ per-user row |
+| `DOLT_REMOTE_USER` | — | — | ✓ | — |
+| `DOLT_REMOTE_PASSWORD` | — | — | ✓ | — |
+| `BEADS_SERVICE_URL` | ✓ | ✓ | — | — |
+| `BEADS_API_KEY` | ✓ | ✓ | ✓ | — |
+| `RULES_ENGINE_API_KEY` | ✓ | ✓ | — | — |
+
+### Rules
+
+- `SUPABASE_SERVICE_ROLE_KEY` and `GOOGLE_CLIENT_SECRET` are **never** exposed to
+  the PWA client — Netlify Functions and Railway only.
+- `SUPABASE_ANON_KEY` is safe to expose to the PWA client (it's designed for that).
+- OAuth refresh tokens are runtime-generated and stored in Supabase, not in env vars.
+- Local `.env.local` is already in `.gitignore`. Never commit it.
+- When rotating any key: update in 1Password first, then update each platform store
+  that holds it (see table above to know which ones).
+
+---
+
 ## Appendix: Verbatim Design Session Excerpts
 
 The following characterisations emerged from the architectural design session and are
