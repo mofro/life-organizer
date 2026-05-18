@@ -1,0 +1,44 @@
+# Railway configuration for the Beads Service.
+# Docs: https://docs.railway.com/reference/config-as-code
+#
+# Deployment approach: GitHub Repository
+#   Railway watches the life-organizer repo and auto-deploys on push to main.
+#   The Dockerfile at server/Dockerfile handles the full build + startup.
+#
+# To deploy:
+#   1. In Railway dashboard → New Project → GitHub Repository
+#   2. Select the life-organizer repo
+#   3. Railway detects this railway.toml automatically
+#   4. Set environment variables (see below)
+#   5. Deploy
+#
+# Required environment variables (set in Railway dashboard → Variables):
+#
+#   DOLT_REMOTE_URL
+#     POC:  https://doltremoteapi.dolthub.com/mofro/beads-global
+#     Prod: (Cloudflare R2 URL — update when migrating from DoltHub)
+#
+#   DOLT_REMOTE_USER
+#     Your DoltHub username: mofro
+#
+#   DOLT_REMOTE_PASSWORD
+#     DoltHub API token. Generate at dolthub.com → Settings → API Tokens.
+#     Store in 1Password → "DoltHub API Token".
+#
+#   BEADS_API_KEY
+#     A secret key for protecting Beads Service endpoints from external callers.
+#     Generate: openssl rand -hex 32
+#     Store in 1Password → "Beads Service API Key".
+#     Also add to: Netlify env vars, local .env.local
+#
+# Auto-injected by Railway (do NOT set manually):
+#   PORT   Railway sets this; server/index.js reads process.env.PORT
+
+[build]
+  dockerfilePath = "server/Dockerfile"
+
+[deploy]
+  healthcheckPath = "/api/health"
+  healthcheckTimeout = 120
+  restartPolicyType = "ON_FAILURE"
+  restartPolicyMaxRetries = 5

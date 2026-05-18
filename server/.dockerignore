@@ -1,0 +1,5 @@
+# Files in the server/ directory that should not be copied into the Docker image.
+# (Build context is the repo root, so the root .dockerignore also applies.)
+
+# Local development only
+check.js

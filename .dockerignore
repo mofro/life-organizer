@@ -1,0 +1,46 @@
+# Root .dockerignore — applies to the full repo build context used by server/Dockerfile.
+# Keep the image lean: only the server source and production deps are needed.
+
+# Frontend / build artifacts (not needed in the server container)
+src/
+public/
+dist/
+index.html
+vite.config.js
+postcss.config.js
+tailwind.config.js
+eslint.config.js
+
+# Netlify
+netlify/
+.netlify/
+netlify.toml
+
+# Dev tooling and docs
+.notes/
+.beads/
+*.md
+AGENTS.md
+CLAUDE.md
+README.md
+NEXT-STEPS.md
+init-repo.sh
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Secrets
+.env
+.env.local
+.env.*
+
+# Git
+.git/
+.gitignore
+
+# Test / CI
+coverage/
+*.log
