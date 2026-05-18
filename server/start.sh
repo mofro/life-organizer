@@ -29,15 +29,19 @@ echo "[start] BD_DIR=$BD_DIR"
 echo "[start] DOLT_REMOTE=$DOLT_REMOTE"
 echo "[start] PORT=${PORT:-3001}"
 
-# ---- Step 1: Initialize beads directory if this is first boot ----
-if [ ! -d "$BD_DIR/.beads" ]; then
-  echo "[start] First boot — initializing beads at $BD_DIR..."
+# ---- Step 1: Initialize beads directory if not fully initialized ----
+# Check for the embedded dolt directory, not just .beads/ — a failed prior
+# bd init leaves .beads/ partially created, which would fool a shallower check.
+if [ ! -d "$DOLT_DATA" ]; then
+  echo "[start] Initializing beads at $BD_DIR (no dolt data found)..."
+  # Clean up any partial state from a previous failed init
+  rm -rf "$BD_DIR/.beads"
   mkdir -p "$BD_DIR"
   cd "$BD_DIR"
   bd init
   echo "[start] beads initialized."
 else
-  echo "[start] Existing beads directory found."
+  echo "[start] Existing beads database found at $DOLT_DATA."
 fi
 
 # ---- Step 2 + 3: Configure Dolt remote and pull ----

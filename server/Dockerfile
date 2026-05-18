@@ -10,9 +10,11 @@ RUN npm ci --omit=dev
 FROM node:20-slim
 
 # curl: needed by the Dolt installer and the HEALTHCHECK command
+# git: required by bd init (beads uses git internally to version its database)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Dolt CLI — used by the startup script to pull beads data from DoltHub
