@@ -44,38 +44,25 @@ else
   echo "[start] Existing beads database found at $DOLT_DATA."
 fi
 
-# ---- Step 2 + 3: Configure Dolt remote and pull ----
-if [ -d "$DOLT_DATA" ]; then
-  echo "[start] Configuring Dolt remote..."
-  cd "$DOLT_DATA"
-
-  # Add remote — idempotent, ignore error if it already exists
-  dolt remote add origin "$DOLT_REMOTE" 2>/dev/null || true
-
-  # Configure credentials for push (read from public DoltHub repo needs no auth)
-  if [ -n "$DOLT_REMOTE_USER" ] && [ -n "$DOLT_REMOTE_PASSWORD" ]; then
-    dolt config --global --add user.name "$DOLT_REMOTE_USER" 2>/dev/null || true
-    dolt config --global --add user.password "$DOLT_REMOTE_PASSWORD" 2>/dev/null || true
-    echo "[start] Dolt credentials configured."
-  fi
-
-  echo "[start] Pulling beads data from DoltHub..."
-  if dolt pull origin main --no-edit 2>&1; then
-    echo "[start] Dolt pull succeeded — data is up to date."
-  else
-    # Don't fail startup if the pull fails.
-    # The server will start with whatever data was baked into the image
-    # (likely empty on first deploy, stale on restart) and will re-sync
-    # on the next /api/beads/ready request (which calls bd repo sync).
-    echo "[start] WARNING: Dolt pull failed. Starting with existing data." >&2
-    echo "[start] The server will attempt to sync on the next /api/beads/ready request." >&2
-  fi
-
-  cd /app
+# ---- Step 2: Wire the sync remote into bd's config.yaml ----
+# bd repo sync reads sync.remote from .beads/config.yaml — NOT from dolt remote.
+# Raw `dolt remote add` bypasses this; bd never sees it.
+CONFIG="$BD_DIR/.beads/config.yaml"
+if grep -q "sync.remote" "$CONFIG" 2>/dev/null; then
+  echo "[start] sync.remote already configured."
 else
-  echo "[start] WARNING: Dolt data directory not found at $DOLT_DATA" >&2
-  echo "[start]   bd init may have used a different layout. Check container logs." >&2
-  echo "[start]   Starting server anyway — /api/beads/* will return empty results." >&2
+  echo "[start] Writing sync.remote to $CONFIG..."
+  printf '\nsync.remote: "%s"\n' "$DOLT_REMOTE" >> "$CONFIG"
+fi
+
+# ---- Step 3: Pull latest beads data via bd repo sync ----
+cd "$BD_DIR"
+echo "[start] Running bd repo sync from $DOLT_REMOTE..."
+if bd repo sync 2>&1; then
+  echo "[start] bd repo sync succeeded."
+else
+  echo "[start] WARNING: bd repo sync failed. Starting with empty/stale data." >&2
+  echo "[start] Data will sync on the next /api/beads/ready request." >&2
 fi
 
 # ---- Step 4: Hand off to the server ----
