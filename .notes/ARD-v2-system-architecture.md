@@ -250,20 +250,54 @@ git-versioned SQL database with native remote sync (`bd dolt push / bd dolt pull
 The `~/beads-global` directory is just a local checkout of a Dolt repo — structurally
 identical to a git working directory.
 
-**The resolution:**
+### Two Distinct Infrastructure Concerns
+
+These are often conflated but are independent:
+
+#### 1. Sync Medium
+
+Dolt natively supports S3-compatible object storage as a remote endpoint.
+`bd dolt push` serialises the Dolt repo (like git pack files) and uploads to the
+storage target. `dolt pull` on the cloud side downloads and reconstructs the checkout.
+
+**The sync medium is not a server.** It has no compute, cannot answer SQL queries,
+and runs no processes. It is a bucket — the handoff point between local and cloud.
+
+Requirements: S3-compatible API, accessible from both local machine and cloud compute,
+durable persistent storage.
+
+#### 2. Cloud Compute (Beads Service)
+
+A persistent Node.js container that:
+- Pulls from the sync medium on startup (and on a refresh schedule)
+- Runs `dolt server` locally — MySQL-compatible, queryable by `server/index.js`
+- Runs `server/index.js` — Express REST API, called by the Context Collector
+
+**The cloud compute is the server.** It is not the sync layer.
+
+Requirements: always-on (no cold starts — Context Collector calls it on every event),
+Node.js runtime with Dolt CLI available, outbound access to sync medium, inbound HTTP.
+
+### Structure
 
 ```
-LOCAL MACHINE:
+LOCAL MACHINE
   bd CLI
-    → beads-global (Dolt, local checkout)
-    → bd dolt push (on close/claim, or scheduled)
-    → Dolt Remote (DoltHub, or self-hosted Dolt server)
-
-CLOUD:
-  Dolt Remote
-    ← pulled by Deployed Beads Service
-  Deployed Beads Service (same server/index.js, on Railway/Render/Fly)
-    ← called by Netlify functions, Context Collector, Rules Engine
+  └─ ~/beads-global  (Dolt checkout, primary)
+  └─ bd dolt push ──────────────────────→  SYNC MEDIUM
+                                           (S3-compatible
+                                            object storage)
+                                                │
+                                           dolt pull
+                                                │
+                                                ▼
+                                      CLOUD COMPUTE
+                                      (persistent service)
+                                        dolt server (MySQL)
+                                        server/index.js (REST)
+                                                │
+                                        Context Collector
+                                        (Netlify function)
 ```
 
 The existing `server/index.js` is already the correct abstraction — an Express HTTP
@@ -271,10 +305,17 @@ wrapper around `bd` CLI calls. Deploy it with Dolt remote sync configured, and t
 local/cloud divide collapses.
 
 **Write operations** (claim, close) flow through the deployed service → Dolt remote →
-`bd dolt pull` keeps local copy current. This is a coherent sync model: local is the
-primary, cloud is a read-replica with write-back.
+`bd dolt pull` keeps local copy current. Local is the primary; cloud is a read-replica
+with write-back.
 
 **The division point is the Dolt remote, not the local machine.**
+
+### POC Path
+
+DoltHub public repos (free) can serve as the sync medium for initial development,
+proving the full `bd dolt push/pull` mechanism with zero infrastructure cost.
+Migration to S3-compatible object storage later requires a single URL change —
+all code remains identical.
 
 ---
 
@@ -575,37 +616,185 @@ approval path.
 
 ### Active (must resolve during Phase 1–2)
 
-1. **Dolt remote hosting:** DoltHub (managed, free tier) vs. self-hosted Dolt server
-   (more control, more ops). DoltHub is the default recommendation unless there are
-   privacy concerns about issue content.
+1. **Dolt remote hosting:** ✅ **RESOLVED (2026-05-17)** — DoltHub public repo
+   `mofro/beads-global` configured and verified. Remote:
+   `https://doltremoteapi.dolthub.com/mofro/beads-global`. POC using DoltHub public
+   (free). Migration to S3-compatible object storage later = one URL change.
 
-2. **Beads Service hosting:** Railway, Render, or Fly.io. All support Node.js, all
-   have free/low-cost tiers. Railway has the simplest deploy story for a Node app.
-   Decision needed before Phase 1b.
+2. **Beads Service hosting:** ✅ **RESOLVED (2026-05-17)** — Railway. Simplest
+   Node.js deploy story; always-on free tier sufficient for POC.
 
-3. **World State schema ownership:** Supabase is the plan, but the exact schema needs
-   design before any agent can write to it. This is a blocking dependency for
-   Phase 1c and everything downstream. Priority: design this early.
+   **Container requirements (verified):**
+   - `bd` CLI is macOS arm64 only — cannot run directly on a Linux container
+   - `bd` ships Linux binaries via npm package `@beads/bd` (auto-selects platform binary)
+   - Source: [github.com/gastownhall/beads](https://github.com/gastownhall/beads), v1.0.4+
+   - Linux AMD64 and ARM64 binaries are officially maintained
 
-4. **Rules Engine location:** Client-side (runs in PWA, offline-capable) vs.
-   server-side Netlify function (authoritative, can trigger push). Recommendation:
-   server-side for authoritative notifications, client-side mirror for offline/instant
-   feedback. Resolve in Phase 2a.
+   **Dockerfile build steps (required before Railway deploy):**
+   ```
+   1. Base image: node:20-slim (or node:20)
+   2. Install dolt binary (curl from github.com/dolthub/dolt/releases)
+   3. npm install -g @beads/bd  (installs Linux bd binary + dolt embedded)
+   4. Clone beads-global from DoltHub remote on container startup
+   5. Run server/index.js (Express, port 3001)
+   ```
+
+   **Startup script sequence (runs on container boot):**
+   ```
+   mkdir -p ~/beads-global
+   cd ~/beads-global && bd init (if not already initialised)
+   bd dolt remote add origin https://doltremoteapi.dolthub.com/mofro/beads-global
+   bd dolt pull
+   node /app/server/index.js
+   ```
+
+   **Environment variables needed on Railway:**
+   - `DOLT_REMOTE_USER` — DoltHub username (mofro)
+   - `DOLT_REMOTE_PASSWORD` — DoltHub credentials / token
+   - `PORT` — Railway injects this; server must read from env (currently hardcoded 3001)
+
+   **One code change required in server/index.js:**
+   - `BDG_DIR`: currently hardcoded to `resolve(homedir(), 'beads-global')` — works
+     correctly on both macOS and Linux (homedir() returns /root in container)
+   - `PORT`: currently hardcoded to 3001 — must change to `process.env.PORT || 3001`
+   - Shell: currently uses `/bin/zsh` — must change to `/bin/sh` or `/bin/bash`
+     (zsh not present in slim Linux images)
+
+3. **World State schema (Supabase):** ✅ **RESOLVED (2026-05-17)**
+
+   **Account setup:** Sign up at supabase.com via GitHub OAuth. Free tier: 2 active
+   projects, 500 MB database, 5 GB egress/month. Sufficient indefinitely for single-user.
+
+   **Irrevocable decisions (must get right on day one):**
+   - All timestamps: `timestamptz` — never plain `timestamp` (timezone data loss)
+   - All JSON: `jsonb` — never `json` (supports indexing, faster)
+   - Primary keys: `bigint generated by default as identity` — not UUID (overkill)
+   - Every table needs a `user_id uuid` column, even now as single-user (RLS-ready)
+   - Every table needs `created_at timestamptz DEFAULT now()` and `updated_at` with trigger
+   - Enable RLS on every table from day one (zero cost; painful to retrofit later)
+
+   **Auth model:** Supabase Auth + JWT. Server-side functions use service role key.
+   PWA uses anon key + user JWT. Never expose service role key to client.
+
+   **Free tier gotcha:** Projects auto-pause after 7 days of inactivity. Resume is
+   instant but means background crons fail on idle projects. Solution: any app usage
+   resets the timer; crons themselves count as activity.
+
+   **Tables required before Phase 1c (Context Collector) can write anything:**
+   `calendar_snapshot`, `open_tasks`, `beads_ready`, `rules`, `notification_log`,
+   `user_preferences`, `patterns`, `rule_suggestions`
+
+   Full column-level schema design is the first execution task of EPIC-INFRA.
+
+4. **Rules Engine location:** ✅ **RESOLVED (2026-05-17)**
+
+   **Decision:** Server-side Netlify Function, authoritative. Client-side mirror in
+   PWA for instant/offline feedback only.
+
+   **Implementation:**
+   - File: `netlify/functions/evaluate-rules.mts`
+   - Triggered: HTTP POST (from PWA on state change) + scheduled cron (hourly backup sweep)
+   - Protected: `x-api-key` header checked against `RULES_ENGINE_API_KEY` env var
+   - Connects to Supabase via `SUPABASE_SERVICE_ROLE_KEY` (never exposed to client)
+   - Calls Beads Service on Railway when rule fires (via `BEADS_SERVICE_URL` env var)
+
+   **Netlify Function limits (free tier):**
+   - 60s timeout (sync) / 15min (background function)
+   - 125,000 invocations/month — ample for personal use
+   - Secrets via Netlify UI → Site Settings → Environment variables (NOT in netlify.toml)
+
+   **Scheduled sweep:** `netlify/functions/evaluate-rules-hourly.mts` with
+   `export const config: Config = { schedule: "0 * * * *" }` — runs even when PWA is closed.
 
 ### Important (resolve during Phase 3–4)
 
-5. **Gmail OAuth for Email Intake:** Personal Gmail works via Google OAuth (same
-   flow as Calendar). Scope needed: `gmail.readonly`. Does user want automatic intake
-   (poll on schedule) or explicit intake (user-triggered "check email for tasks")?
+5. **Gmail OAuth for Email Intake:** ✅ **RESOLVED (2026-05-17)**
 
-6. **Conversation Intake trigger:** When does it run? Options: (a) user explicitly
-   invokes "extract tasks from this conversation", (b) automatic at session end,
-   (c) always-on with confidence gating. Option (a) is safest and most controllable
-   to start.
+   **Critical finding:** The Gmail MCP available in Claude Code
+   (`mcp__6efc4599...` tools) is **Claude Code-only** — it cannot be called from
+   the PWA or Netlify Functions. It is not an API. Production path is Google OAuth +
+   Gmail API directly.
 
-7. **Pattern Analyzer auto-apply threshold:** How confident does the Analyzer need to
-   be before auto-applying a rule change vs. surfacing it for human review? Start
-   conservative (human review always), loosen as trust builds.
+   **Decision:** Explicit user-triggered intake to start ("check email for tasks").
+   Upgrade to scheduled automatic polling once rules are calibrated and noise is low.
+
+   **Setup required (one-time, ~20 min):**
+   1. Create Google Cloud project at console.cloud.google.com
+   2. Enable Gmail API
+   3. Create OAuth 2.0 credentials (Web application type)
+   4. Add redirect URIs: `http://localhost:5173/auth/callback` + Netlify domain
+   5. Mark consent screen as "Internal" (personal use → no Google review needed)
+
+   **Scopes:** `https://www.googleapis.com/auth/gmail.readonly`
+
+   **Rate limits:** 250 requests/day free. Hourly check uses <2% of quota. Non-issue.
+
+   **Token storage:** Refresh token stored in Supabase (server-side only). Access tokens
+   refreshed per-call via `POST https://oauth2.googleapis.com/token`. Never in localStorage.
+
+   **Netlify Function flow:**
+   ```
+   Scheduled cron → refresh access token → GET /gmail/v1/users/me/messages?q=is:unread
+   → fetch full messages → send bodies to Claude API → extract tasks → write to World State
+   ```
+
+6. **Conversation Intake — full design:** ✅ **RESOLVED (2026-05-17)**
+
+   **Trigger:** Explicit user invocation only (to start). User pastes conversation text
+   into a form in the PWA. Session-end automatic capture deferred until confidence
+   gating is well-calibrated.
+
+   **Input:** Raw conversation text + source context (`claude-session`, `note`,
+   `voice-transcript`, `email`) + optional project hint (`work`, `personal`, `mixed`).
+
+   **Claude call:** Single structured extraction call. System prompt defines TASK /
+   COMMITMENT / DECISION / QUESTION / EVENT types. User prompt passes the raw text.
+   Output is a typed JSON array of `Extraction` objects, each with:
+   `{ type, content: {title, description, deadline, priority}, destination, confidence, sourceSpan }`
+
+   **Confidence gate:**
+   - `>= 0.80` → auto-create without confirmation
+   - `0.50–0.79` → surface in "needs review" UI panel
+   - `< 0.50` → skip (shown collapsed for transparency)
+
+   **Output routing:**
+   - `destination: 'beads'` → POST to Beads Service REST API → `bd create`
+   - `destination: 'personal-task'` → INSERT to Supabase `open_tasks` table
+   - Source determines destination: work conversation → beads; personal → tasks; mixed → ask
+
+   **Edge cases handled:**
+   - All questions → extract as QUESTION type, low priority, not auto-created
+   - Past deadlines → downgrade to review regardless of confidence
+   - "Sarah will handle X" → extract with `owner: 'Sarah'`, surface for confirmation
+   - Long conversations → truncate to last ~8000 tokens; note in response
+
+7. **Pattern Analyzer — full design:** ✅ **RESOLVED (2026-05-17)**
+
+   **Trigger:** Netlify scheduled function, weekly (Monday 2am UTC).
+
+   **Input (from Supabase):**
+   - `rules` table: active rules with `total_fires`, `accepted_count`, `dismissed_count`
+   - `notification_log`: per-rule firing history with user action + action latency
+   - Summary computed: acceptance rate, dismissal rate, avg latency, fires-by-hour pattern
+
+   **Claude call:** Single call per cycle. Conservative system prompt: only suggest
+   changes with clear evidence (high-volume dismissal trend, temporal pattern, conflict
+   between two rules). Returns 1–2 high-confidence suggestions max.
+
+   **Suggestion types:** `threshold_adjustment`, `cooldown_adjustment`, `new_rule`, `deprecate`
+
+   **Stored in:** Supabase `rule_suggestions` table with `approved` field (NULL=pending,
+   TRUE=applied, FALSE=rejected)
+
+   **Human review vs. auto-apply:**
+   - Default (Phase 4 launch): all suggestions require human approval via email link
+   - Trust mode (later): suggestions with confidence >= 0.85 auto-apply; rest surface for review
+   - Max 2 auto-applied changes per cycle regardless of confidence
+
+   **Feedback loop prevention:**
+   - Don't suggest the same change twice within 30 days
+   - If a rule was changed in the last 7 days, require >= 0.90 confidence before suggesting again
+   - Cap: never suggest more than 2 changes per cycle
 
 ### Deferred (Phase 5+)
 
