@@ -11,6 +11,12 @@ import { existsSync } from 'fs';
 const BDG_DIR = process.env.BEADS_DIR || resolve(homedir(), 'beads-global');
 const PORT = process.env.PORT || 3001;
 
+// BEADS_API_KEY — optional but strongly recommended in production.
+// When set, all requests must include header: Authorization: Bearer <key>
+// Locally (no key set) the server runs open — no auth required.
+// Generate with: openssl rand -hex 32
+const API_KEY = process.env.BEADS_API_KEY || null;
+
 // --- Startup validation ---
 // Fail loudly so "server offline" in the UI has an obvious cause in the logs.
 
@@ -40,6 +46,15 @@ console.log(`[server] beads-global: ${BDG_DIR}`);
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Auth middleware — enforced only when BEADS_API_KEY is set.
+// /api/health is always public (Railway uses it for readiness probes).
+app.use((req, res, next) => {
+  if (!API_KEY || req.path === '/api/health') return next();
+  const header = req.headers['authorization'] || '';
+  if (header === `Bearer ${API_KEY}`) return next();
+  res.status(401).json({ error: 'Unauthorized' });
+});
 
 function bd(args, { sync = false } = {}) {
   // Use ; not && for sync — failure (e.g. no remote configured) must not block reads.
