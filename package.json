@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:full": "netlify dev",
     "server": "node server/index.js",
     "start": "concurrently --names \"server,vite\" --prefix-colors \"blue,green\" \"npm run server\" \"npm run dev\"",
     "check": "node server/check.js",
@@ -13,6 +14,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.78.0",
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "react": "^18.3.1",

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useBeadsTasks } from './useBeadsTasks.js';
+import { useWorldState } from './useWorldState.js';
 
 // ─── Mock calendar events ────────────────────────────────────────────────────
 const MOCK_CALENDAR = [
@@ -553,7 +554,10 @@ export default function LifeOrganizer() {
   const [filter, setFilter] = useState('active');
   const [loaded, setLoaded] = useState(false);
 
-  const { tasks: beadsTasks, loading: beadsLoading, error: beadsError, refresh: refreshBeads, claim: claimBead, close: closeBead } = useBeadsTasks();
+  // World State: reads from Supabase (via Netlify function) — source of truth in production.
+  const { beadsReady, derived, syncedAt, beadsError: beadsStale, loading: worldLoading, error: worldError, refresh: refreshWorld } = useWorldState();
+  // Write-back: claim/close still route through local API server (production: use Railway endpoint, life-43k).
+  const { claim: claimBead, close: closeBead } = useBeadsTasks();
 
   useEffect(() => {
     storageLoad('lo-tasks').then(saved => {
@@ -572,7 +576,7 @@ export default function LifeOrganizer() {
   const completeTask = useCallback((id) => setTasks(prev => prev.map(t => t.id === id ? { ...t, status: 'completed' } : t)), []);
 
   // Recommendations draw from both manual tasks and ready Beads tasks
-  const allTasksForReco = [...tasks, ...beadsTasks];
+  const allTasksForReco = [...tasks, ...beadsReady];
   const recommendations = getRecommendations(allTasksForReco, MOCK_CALENDAR);
 
   return (
@@ -602,34 +606,37 @@ export default function LifeOrganizer() {
           </Section>
         )}
 
-        {/* Beads — ready issues from this project */}
+        {/* Beads — ready issues from World State */}
         <Section
           title="Beads — ready to work"
-          subtitle={beadsError ? 'server offline' : undefined}
-          badge={beadsTasks.length}
+          subtitle={beadsStale ? '⚠ stale data' : syncedAt ? `synced ${new Date(syncedAt).toLocaleTimeString()}` : undefined}
+          badge={beadsReady.length}
           defaultOpen={true}
         >
-          {beadsError ? (
-            <div className="text-xs text-gray-400 py-2">
-              <p>Can't reach local API server. Run <code className="bg-gray-100 px-1 rounded">npm start</code> to enable.</p>
+          {worldError ? (
+            <div className="text-xs text-red-400 py-2">
+              <p>World State sync failed: {worldError}</p>
             </div>
-          ) : beadsLoading ? (
-            <p className="text-xs text-gray-400 py-2">Loading…</p>
-          ) : beadsTasks.length === 0 ? (
-            <p className="text-xs text-gray-400 py-2">No unblocked issues — run <code className="bg-gray-100 px-1 rounded">bd ready</code> to check.</p>
+          ) : worldLoading ? (
+            <p className="text-xs text-gray-400 py-2">Syncing…</p>
+          ) : beadsReady.length === 0 ? (
+            <p className="text-xs text-gray-400 py-2">No unblocked issues.</p>
           ) : (
             <div>
-              {beadsTasks.map(task => (
+              {beadsStale && (
+                <p className="text-xs text-amber-500 mb-2">Beads Service unreachable — showing last known data.</p>
+              )}
+              {beadsReady.map(task => (
                 <BeadsTaskRow
                   key={task.id}
                   task={task}
                   onClaim={claimBead}
                   onClose={closeBead}
-                  serverOnline={!beadsError}
+                  serverOnline={true}
                 />
               ))}
               <button
-                onClick={refreshBeads}
+                onClick={refreshWorld}
                 className="mt-2 text-xs text-gray-400 hover:text-gray-600"
               >↺ refresh</button>
             </div>

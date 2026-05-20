@@ -5,6 +5,16 @@
 [build.environment]
   NODE_VERSION = "20"
 
+[functions]
+  # esbuild handles ESM (import/export) in Netlify Functions v2
+  node_bundler = "esbuild"
+
+[dev]
+  # `netlify dev` starts both Vite and the functions runtime.
+  # Use this instead of `npm run dev` when working on the Context Collector locally.
+  command = "npm run dev"
+  targetPort = 5173
+
 # SPA: all routes serve index.html
 [[redirects]]
   from = "/*"
