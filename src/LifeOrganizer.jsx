@@ -381,7 +381,7 @@ function BeadsTaskRow({ task, onClaim, onClose, serverOnline }) {
     if (next && !detail) {
       setDetailLoading(true);
       try {
-        const res = await window.fetch(`/api/beads/show/${task.beadsId}`);
+        const res = await window.fetch(`/.netlify/functions/beads-show?id=${task.beadsId}`);
         if (res.ok) setDetail(await res.json());
       } catch {}
       setDetailLoading(false);
