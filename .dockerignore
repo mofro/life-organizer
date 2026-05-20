@@ -18,8 +18,9 @@ netlify.toml
 
 # Dev tooling and docs
 .notes/
-# .beads/ is intentionally included — project issues ship with the image.
-# Railway uses BEADS_DIR=/app so bd reads from /app/.beads/ directly.
+# .beads/ excluded: container pulls fresh data from DoltHub on startup via bd dolt pull.
+# Baking issue data into the image would mean stale data until next redeploy.
+.beads/
 *.md
 AGENTS.md
 CLAUDE.md

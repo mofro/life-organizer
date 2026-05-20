@@ -40,9 +40,9 @@ COPY server/index.js ./server/
 COPY server/start.sh ./server/start.sh
 RUN chmod +x ./server/start.sh
 
-# Copy project beads database — issue data ships with the image.
-# bd reads from /app/.beads/ when BEADS_DIR=/app is set on Railway.
-COPY .beads/ ./.beads/
+# Note: .beads/ is NOT copied here. The startup script (start.sh) runs bd init
+# and bd dolt pull on every boot to fetch live issue data from DoltHub.
+# This is the correct architecture per Decision 9 (ARD v2).
 
 # PORT is injected by Railway at runtime; the server reads process.env.PORT.
 # Expose the default as documentation only.
