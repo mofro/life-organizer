@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useBeadsTasks } from './useBeadsTasks.js';
 import { useWorldState } from './useWorldState.js';
+import { useRulesEngine } from './useRulesEngine.js';
 
 // ─── Mock calendar events ────────────────────────────────────────────────────
 const MOCK_CALENDAR = [
@@ -556,6 +557,8 @@ export default function LifeOrganizer() {
 
   // World State: reads from Supabase (via Netlify function) — source of truth in production.
   const { beadsReady, derived, syncedAt, beadsError: beadsStale, loading: worldLoading, error: worldError, refresh: refreshWorld } = useWorldState();
+  // Rules Engine: evaluates World State after each sync, returns fired notifications.
+  const { notifications, evaluatedAt, loading: rulesLoading, error: rulesError, evaluate, dismiss } = useRulesEngine();
   // Write-back: claim/close still route through local API server (production: use Railway endpoint, life-43k).
   const { claim: claimBead, close: closeBead } = useBeadsTasks();
 
@@ -574,6 +577,18 @@ export default function LifeOrganizer() {
   const updateStatus = useCallback((id, status) => setTasks(prev => prev.map(t => t.id === id ? { ...t, status } : t)), []);
   const deleteTask   = useCallback((id) => setTasks(prev => prev.filter(t => t.id !== id)), []);
   const completeTask = useCallback((id) => setTasks(prev => prev.map(t => t.id === id ? { ...t, status: 'completed' } : t)), []);
+
+  // Run rules engine after world state finishes loading
+  const handleRefresh = useCallback(async () => {
+    await refreshWorld();
+    evaluate();
+  }, [refreshWorld, evaluate]);
+
+  // Auto-evaluate on first world state load
+  useEffect(() => {
+    if (!worldLoading && !worldError) evaluate();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [worldLoading]);
 
   // Recommendations draw from both manual tasks and ready Beads tasks
   const allTasksForReco = [...tasks, ...beadsReady];
@@ -603,6 +618,35 @@ export default function LifeOrganizer() {
                 <RecommendationCard key={task.id} task={task} onComplete={completeTask} />
               ))}
             </div>
+          </Section>
+        )}
+
+        {/* Rules Engine notifications */}
+        {(notifications.length > 0 || rulesError) && (
+          <Section title="Alerts" badge={notifications.length} defaultOpen={true}>
+            {rulesError && (
+              <p className="text-xs text-red-400 mb-2">Rules engine error: {rulesError}</p>
+            )}
+            <div className="space-y-1.5">
+              {notifications.map((n, i) => (
+                <div key={i} className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-amber-900">{n.title}</p>
+                    {n.body && <p className="text-xs text-amber-700 mt-0.5">{n.body}</p>}
+                  </div>
+                  <button
+                    onClick={() => dismiss(i)}
+                    className="text-amber-300 hover:text-amber-500 text-xs shrink-0 mt-0.5"
+                  >✕</button>
+                </div>
+              ))}
+            </div>
+            {evaluatedAt && (
+              <p className="text-xs text-gray-300 mt-2">
+                evaluated {new Date(evaluatedAt).toLocaleTimeString()}
+                {rulesLoading && ' · checking…'}
+              </p>
+            )}
           </Section>
         )}
 
@@ -636,7 +680,7 @@ export default function LifeOrganizer() {
                 />
               ))}
               <button
-                onClick={refreshWorld}
+                onClick={handleRefresh}
                 className="mt-2 text-xs text-gray-400 hover:text-gray-600"
               >↺ refresh</button>
             </div>
