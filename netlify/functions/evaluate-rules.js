@@ -274,15 +274,10 @@ export default async () => {
     }
   }
 
-  // 5. Write to notification_log and update last_fired_at
+  // 5. Write to notification_log
   if (toInsert.length > 0) {
-    await supabase.from('notification_log').insert(toInsert);
-
-    const firedRuleIds = [...new Set(toInsert.map(r => r.rule_id))];
-    await supabase.from('rules')
-      .update({ last_fired_at: now })
-      .in('id', firedRuleIds)
-      .eq('user_id', USER_ID);
+    const { error: logErr } = await supabase.from('notification_log').insert(toInsert);
+    if (logErr) console.error('[evaluate-rules] notification_log insert failed:', logErr.message);
   }
 
   return json(200, {
