@@ -125,7 +125,7 @@ export default async () => {
     .from('open_tasks')
     .select('*')
     .eq('user_id', SUPABASE_USER_ID)
-    .not('status', 'in', '("completed","cancelled")')
+    .not('status', 'in', '(completed,cancelled)')
     .order('deadline', { ascending: true, nullsFirst: false });
 
   if (taskErr) console.error('[collect-world-state] open_tasks read failed:', taskErr.message);
