@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useBeadsTasks } from './useBeadsTasks.js';
 import { useWorldState } from './useWorldState.js';
 import { useRulesEngine } from './useRulesEngine.js';
 
