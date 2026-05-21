@@ -655,7 +655,7 @@ export default function LifeOrganizer() {
           title="Beads — ready to work"
           subtitle={beadsStale ? '⚠ stale data' : syncedAt ? `synced ${new Date(syncedAt).toLocaleTimeString()}` : undefined}
           badge={beadsReady.length}
-          defaultOpen={true}
+          defaultOpen={false}
         >
           {worldError ? (
             <div className="text-xs text-red-400 py-2">
