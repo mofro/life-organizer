@@ -101,6 +101,8 @@ export default async () => {
         title:      issue.title,
         priority:   typeof issue.priority === 'number' ? issue.priority : null,
         blocked_by: issue.blocked_by || [],
+        status:     issue.status     || null,
+        issue_type: issue.issue_type || null,
         synced_at:  now.toISOString(),
       }));
 

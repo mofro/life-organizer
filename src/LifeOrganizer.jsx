@@ -424,6 +424,12 @@ function BeadsTaskRow({ task }) {
           </div>
           <div className="flex flex-wrap gap-1.5 mt-1">
             <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${priorityBadge[task.priority]}`}>{task.priority}</span>
+            {task.status === 'in_progress' && (
+              <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-indigo-100 text-indigo-700">▶ active</span>
+            )}
+            {task.issueType && task.issueType !== 'task' && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{task.issueType}</span>
+            )}
             {task.project && <span className="text-xs text-gray-400">{task.project}</span>}
             {task.blockedBy?.length > 0 && (
               <span className="text-xs text-orange-500">blocked by {task.blockedBy.length}</span>
