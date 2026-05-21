@@ -57,10 +57,8 @@ app.use((req, res, next) => {
 });
 
 function bd(args, { sync = false } = {}) {
-  // Use ; not && for sync — DoltHub being unreachable must not block reads.
-  // bd dolt pull origin is used (not bd repo sync) because bd bootstrap
-  // configures the Dolt native remote, not the bd-level sync.remote key.
-  const syncCmd = sync ? 'bd dolt pull origin > /dev/null 2>&1 ; ' : '';
+  // Use ; not && for sync — failure (e.g. no remote configured) must not block reads.
+  const syncCmd = sync ? 'bd repo sync > /dev/null 2>&1 ; ' : '';
   const cmd = `${syncCmd}bd ${args} --json`;
   const raw = execSync(cmd, { cwd: BDG_DIR, encoding: 'utf8', shell: '/bin/bash' });
   const jsonEnd = raw.lastIndexOf(']');
