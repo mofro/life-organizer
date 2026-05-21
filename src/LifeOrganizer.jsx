@@ -367,14 +367,32 @@ function TaskList({ tasks, onStatusChange, onDelete, filter, onFilterChange }) {
 }
 
 // ─── Beads task row — accordion with lazy-loaded details + write-back ────────
-function BeadsTaskRow({ task, onClaim, onClose, serverOnline }) {
+// Copy-to-clipboard pill for a terminal command.
+// Shows the command as monospace; clicking copies and flashes "Copied!".
+function CopyCommand({ cmd }) {
+  const [copied, setCopied] = useState(false);
+  const copy = useCallback((e) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(cmd).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [cmd]);
+  return (
+    <button
+      onClick={copy}
+      title="Copy to clipboard"
+      className="flex items-center gap-1.5 text-xs font-mono bg-gray-50 border border-gray-200 text-gray-500 rounded px-2 py-1 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+    >
+      <span>{copied ? '✓ copied' : cmd}</span>
+    </button>
+  );
+}
+
+function BeadsTaskRow({ task }) {
   const [open, setOpen]           = useState(false);
   const [detail, setDetail]       = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [action, setAction]       = useState(null);   // 'claiming' | 'closing' | null
-  const [closing, setClosing]     = useState(false);  // inline reason form open
-  const [reason, setReason]       = useState('');
-  const [actionError, setActionError] = useState(null);
 
   const toggle = useCallback(async () => {
     const next = !open;
@@ -388,21 +406,6 @@ function BeadsTaskRow({ task, onClaim, onClose, serverOnline }) {
       setDetailLoading(false);
     }
   }, [open, detail, task.beadsId]);
-
-  const handleClaim = useCallback(async () => {
-    setAction('claiming');
-    setActionError(null);
-    try { await onClaim(task.beadsId); }
-    catch (e) { setActionError(e.message); setAction(null); }
-  }, [onClaim, task.beadsId]);
-
-  const handleClose = useCallback(async () => {
-    if (!reason.trim()) return;
-    setAction('closing');
-    setActionError(null);
-    try { await onClose(task.beadsId, reason.trim()); }
-    catch (e) { setActionError(e.message); setAction(null); setClosing(false); }
-  }, [onClose, task.beadsId, reason]);
 
   const priorityBadge = { high: 'bg-red-100 text-red-700', medium: 'bg-yellow-100 text-yellow-700', low: 'bg-gray-100 text-gray-600' };
 
@@ -457,63 +460,10 @@ function BeadsTaskRow({ task, onClaim, onClose, serverOnline }) {
             <p className="text-xs text-gray-400">Could not load details — is the local server running?</p>
           )}
 
-          {/* Action buttons */}
-          <div className="pt-1 flex flex-col gap-1.5">
-            {actionError && (
-              <p className="text-xs text-red-500">{actionError}</p>
-            )}
-            {!closing ? (
-              <div className="flex gap-2 flex-wrap">
-                {task.status === 'pending' && serverOnline && (
-                  <button
-                    onClick={e => { e.stopPropagation(); handleClaim(); }}
-                    disabled={!!action}
-                    className="text-xs bg-indigo-50 border border-indigo-200 text-indigo-700 rounded px-2 py-1 hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {action === 'claiming' ? 'Claiming…' : 'Claim'}
-                  </button>
-                )}
-                {serverOnline ? (
-                  <button
-                    onClick={e => { e.stopPropagation(); setClosing(true); setActionError(null); }}
-                    disabled={!!action}
-                    className="text-xs bg-green-50 border border-green-200 text-green-700 rounded px-2 py-1 hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Close…
-                  </button>
-                ) : (
-                  <span className="text-xs text-gray-300 font-mono">bd close {task.beadsId}</span>
-                )}
-              </div>
-            ) : (
-              <div className="flex gap-2 items-center">
-                <input
-                  type="text"
-                  value={reason}
-                  onChange={e => setReason(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') handleClose();
-                    if (e.key === 'Escape') { setClosing(false); setReason(''); }
-                  }}
-                  placeholder="Reason for closing…"
-                  autoFocus
-                  className="flex-1 border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-green-400"
-                />
-                <button
-                  onClick={handleClose}
-                  disabled={!reason.trim() || !!action}
-                  className="text-xs bg-green-600 text-white rounded px-2 py-1 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-                >
-                  {action === 'closing' ? 'Closing…' : 'Close'}
-                </button>
-                <button
-                  onClick={() => { setClosing(false); setReason(''); }}
-                  className="text-xs text-gray-400 hover:text-gray-600 shrink-0"
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
+          {/* Terminal command helpers — copy to clipboard, run locally via bdg */}
+          <div className="pt-1 flex gap-2 flex-wrap">
+            <CopyCommand cmd={`bdg claim ${task.beadsId}`} />
+            <CopyCommand cmd={`bdg close ${task.beadsId}`} />
           </div>
         </div>
       )}
@@ -559,9 +509,6 @@ export default function LifeOrganizer() {
   const { beadsReady, derived, syncedAt, beadsError: beadsStale, loading: worldLoading, error: worldError, refresh: refreshWorld } = useWorldState();
   // Rules Engine: evaluates World State after each sync, returns fired notifications.
   const { notifications, evaluatedAt, loading: rulesLoading, error: rulesError, evaluate, dismiss } = useRulesEngine();
-  // Write-back: claim/close still route through local API server (production: use Railway endpoint, life-43k).
-  const { claim: claimBead, close: closeBead } = useBeadsTasks();
-
   useEffect(() => {
     storageLoad('lo-tasks').then(saved => {
       if (saved) setTasks(saved);
@@ -674,9 +621,6 @@ export default function LifeOrganizer() {
                 <BeadsTaskRow
                   key={task.id}
                   task={task}
-                  onClaim={claimBead}
-                  onClose={closeBead}
-                  serverOnline={true}
                 />
               ))}
               <button
