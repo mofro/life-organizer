@@ -502,8 +502,8 @@ PHASE 1: FOUNDATION
       → first real data in the store
 
 PHASE 2: FIRST INTELLIGENCE
-  2a. Rules Engine v1 — implement 4 seed rules
-      → first deterministic intelligence firing against real world state
+  2a. Rules Engine v1 — implement 4 seed rules  ✅ SHIPPED 2026-05-21
+      → netlify/functions/evaluate-rules.js live; deadline_proximity verified in prod
   2b. Calendar adapter (life-5eu revised — feeds Context Collector)
       → world state now includes calendar context
   2c. Notification Dispatcher — in-app + email routing
