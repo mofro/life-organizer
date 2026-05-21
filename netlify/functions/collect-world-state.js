@@ -44,13 +44,33 @@ export default async () => {
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   const now = new Date();
 
-  // ── Step 1: Fetch from Beads Service ──────────────────────────────────────
+  // ── Step 1: Sync Railway from DoltHub, then fetch ready issues ───────────────
+  // POST /api/beads/sync triggers bd dolt pull on Railway so it has the latest
+  // data from DoltHub before we ask for the ready list.
+  // Failure is non-fatal: we proceed with whatever data Railway currently has.
   let freshIssues = [];
   let beadsError = null;
+  const beadsHeaders = { Authorization: `Bearer ${BEADS_API_KEY}` };
+
+  try {
+    const syncRes = await fetch(`${BEADS_SERVICE_URL}/api/beads/sync`, {
+      method: 'POST',
+      headers: beadsHeaders,
+      signal: AbortSignal.timeout(15_000),  // pull can take a few seconds
+    });
+    const syncBody = await syncRes.json().catch(() => ({}));
+    if (syncBody.ok) {
+      console.log(`[collect-world-state] Railway synced from DoltHub at ${syncBody.syncedAt}`);
+    } else {
+      console.warn('[collect-world-state] Railway sync failed (proceeding with stale data):', syncBody.error);
+    }
+  } catch (e) {
+    console.warn('[collect-world-state] Railway sync unreachable (proceeding with stale data):', e.message);
+  }
 
   try {
     const res = await fetch(`${BEADS_SERVICE_URL}/api/beads/ready`, {
-      headers: { Authorization: `Bearer ${BEADS_API_KEY}` },
+      headers: beadsHeaders,
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) throw new Error(`Beads Service returned HTTP ${res.status}`);

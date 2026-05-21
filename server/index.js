@@ -70,10 +70,26 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, bdPath: BD_PATH, bdVersion: BD_VERSION, bdgDir: BDG_DIR });
 });
 
-// GET /api/beads/ready — sync then return unblocked open issues across all projects
+// POST /api/beads/sync — pull latest data from DoltHub remote.
+// Called by collect-world-state before fetching ready issues, ensuring
+// Railway always serves data that is current as of the last bd dolt push.
+// Non-blocking: responds immediately; pull runs synchronously but errors
+// are swallowed so the caller can proceed with stale data if DoltHub is down.
+app.post('/api/beads/sync', (_req, res) => {
+  try {
+    execSync('bd dolt pull origin', { cwd: BDG_DIR, encoding: 'utf8', shell: '/bin/bash' });
+    res.json({ ok: true, syncedAt: new Date().toISOString() });
+  } catch (e) {
+    // Log but don't fail — caller proceeds with stale data
+    console.warn('[server] bd dolt pull failed:', e.message);
+    res.json({ ok: false, error: e.message, syncedAt: null });
+  }
+});
+
+// GET /api/beads/ready — return unblocked open issues (no inline sync — caller triggers /api/beads/sync first)
 app.get('/api/beads/ready', (_req, res) => {
   try {
-    res.json(bd('ready --limit 0', { sync: true }));
+    res.json(bd('ready --limit 0'));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
