@@ -2,14 +2,31 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useWorldState } from './useWorldState.js';
 import { useRulesEngine } from './useRulesEngine.js';
 
-// ─── Mock calendar events ────────────────────────────────────────────────────
-const MOCK_CALENDAR = [
-  { id: 1, title: 'Team standup', start: '09:00', end: '09:30', date: 'today', type: 'meeting' },
-  { id: 2, title: 'Deep work block', start: '10:00', end: '12:00', date: 'today', type: 'focus' },
-  { id: 3, title: '1:1 with manager', start: '14:00', end: '14:30', date: 'today', type: 'meeting' },
-  { id: 4, title: 'Product review', start: '11:00', end: '12:00', date: 'tomorrow', type: 'meeting' },
-  { id: 5, title: 'Sprint planning', start: '13:00', end: '15:00', date: 'tomorrow', type: 'meeting' },
-];
+// ─── Calendar sync hook ───────────────────────────────────────────────────────
+// Fetches real Google Calendar events via the server-side calendar-sync function.
+// Falls back to empty array when Google is not connected or the sync fails.
+function useCalendarSync() {
+  const [events, setEvents]       = useState([]);
+  const [connected, setConnected] = useState(null); // null = loading, false = not connected, true = connected
+  const [syncedAt, setSyncedAt]   = useState(null);
+
+  const sync = useCallback(async () => {
+    try {
+      const res  = await fetch('/.netlify/functions/calendar-sync');
+      const data = await res.json();
+      setConnected(data.connected ?? false);
+      setEvents(data.events ?? []);
+      if (data.synced_at) setSyncedAt(data.synced_at);
+    } catch {
+      setConnected(false);
+      setEvents([]);
+    }
+  }, []);
+
+  useEffect(() => { sync(); }, [sync]);
+
+  return { events, connected, syncedAt, sync };
+}
 
 // ─── Recommendation engine ───────────────────────────────────────────────────
 function getRecommendations(tasks, calendar) {
@@ -180,10 +197,26 @@ function RecommendationCard({ task, onComplete }) {
 }
 
 // ─── Calendar section ─────────────────────────────────────────────────────────
-function CalendarContent({ events }) {
+function CalendarContent({ events, connected }) {
   const typeStyle = { meeting: 'bg-blue-100 text-blue-700', focus: 'bg-purple-100 text-purple-700' };
-  const todayEvents = events.filter(e => e.date === 'today');
+
+  // Still loading (connected === null)
+  if (connected === null) {
+    return <p className="text-xs text-gray-300 pt-1">Loading calendar…</p>;
+  }
+
+  // Google not connected — prompt user to connect
+  if (!connected) {
+    return (
+      <p className="text-xs text-gray-400 pt-1">
+        Connect Google in <span className="font-medium">Settings</span> to see your real calendar.
+      </p>
+    );
+  }
+
+  const todayEvents    = events.filter(e => e.date === 'today');
   const tomorrowEvents = events.filter(e => e.date === 'tomorrow');
+  const hasEvents      = todayEvents.length > 0 || tomorrowEvents.length > 0;
 
   return (
     <div className="space-y-3">
@@ -202,7 +235,7 @@ function CalendarContent({ events }) {
           </div>
         )
       )}
-      <p className="text-xs text-gray-300 pt-1">Mock data · real calendar in Phase 2</p>
+      {!hasEvents && <p className="text-xs text-gray-300 pt-1">No events today or tomorrow.</p>}
     </div>
   );
 }
@@ -564,6 +597,8 @@ export default function LifeOrganizer() {
   const { notifications, evaluatedAt, loading: rulesLoading, error: rulesError, evaluate, dismiss } = useRulesEngine();
   // Google OAuth connection state (for Calendar + Gmail adapters).
   const { status: googleStatus, errorReason: googleErrorReason, connect: connectGoogle } = useGoogleAuth();
+  // Real Google Calendar events — replaces MOCK_CALENDAR.
+  const { events: calendarEvents, connected: calendarConnected, sync: syncCalendar } = useCalendarSync();
   useEffect(() => {
     storageLoad('lo-tasks').then(saved => {
       if (saved) setTasks(saved);
@@ -594,7 +629,7 @@ export default function LifeOrganizer() {
 
   // Recommendations draw from both manual tasks and ready Beads tasks
   const allTasksForReco = [...tasks, ...beadsReady];
-  const recommendations = getRecommendations(allTasksForReco, MOCK_CALENDAR);
+  const recommendations = getRecommendations(allTasksForReco, calendarEvents);
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
@@ -691,8 +726,8 @@ export default function LifeOrganizer() {
           <Section title="Add Task" defaultOpen={true}>
             <TaskForm onAdd={addTask} />
           </Section>
-          <Section title="Calendar" subtitle="mock" defaultOpen={true}>
-            <CalendarContent events={MOCK_CALENDAR} />
+          <Section title="Calendar" defaultOpen={true}>
+            <CalendarContent events={calendarEvents} connected={calendarConnected} />
           </Section>
         </div>
 
