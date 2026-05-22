@@ -1,0 +1,32 @@
+#!/bin/bash
+# post-commit — trigger Context Collector when Beads data changes (life-43k)
+#
+# Fires after every `bd` write (close, claim, create, update).
+# Debounced to 30s so a busy session doesn't hammer the Netlify function.
+#
+# Requires BEADS_API_KEY to be set in the shell environment.
+# Add to ~/.zshrc or ~/.bashrc:
+#   export BEADS_API_KEY=<your key>
+
+COLLECTOR_URL="https://life-organizer-mo.netlify.app/.netlify/functions/collect-world-state"
+DEBOUNCE_SECONDS=30
+STAMP_FILE="$HOME/.beads-hook-last"
+
+# Debounce check
+LAST=$(cat "$STAMP_FILE" 2>/dev/null || echo 0)
+NOW=$(date +%s)
+if [ $((NOW - LAST)) -lt $DEBOUNCE_SECONDS ]; then
+  exit 0
+fi
+echo "$NOW" > "$STAMP_FILE"
+
+# Skip silently if no API key — don't block the bd operation
+if [ -z "$BEADS_API_KEY" ]; then
+  exit 0
+fi
+
+# Fire and forget — background curl so bd CLI is not delayed
+curl -s -X POST "$COLLECTOR_URL" \
+  -H "Authorization: Bearer $BEADS_API_KEY" \
+  --max-time 10 \
+  > /dev/null 2>&1 &
