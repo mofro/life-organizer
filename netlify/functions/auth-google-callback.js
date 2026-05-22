@@ -67,8 +67,10 @@ export default async (req) => {
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   const { error: dbError } = await supabase
     .from('user_preferences')
-    .update({ google_refresh_token: tokens.refresh_token })
-    .eq('user_id', SUPABASE_USER_ID);
+    .upsert(
+      { user_id: SUPABASE_USER_ID, google_refresh_token: tokens.refresh_token },
+      { onConflict: 'user_id' },
+    );
 
   if (dbError) {
     console.error('[auth-google-callback] DB update failed:', dbError.message);
