@@ -504,6 +504,54 @@ function ExternalRef({ value, description }) {
   );
 }
 
+// ─── Google OAuth connection status hook ─────────────────────────────────────
+function useGoogleAuth() {
+  const [status, setStatus] = useState('unknown'); // 'unknown' | 'connected' | 'disconnected' | 'error'
+  const [errorReason, setErrorReason] = useState(null);
+
+  useEffect(() => {
+    // Handle redirect back from Google consent screen
+    const params = new URLSearchParams(window.location.search);
+    const googleParam = params.get('google');
+    if (googleParam === 'connected') {
+      setStatus('connected');
+      window.history.replaceState({}, '', window.location.pathname);
+      return;
+    }
+    if (googleParam === 'error') {
+      setStatus('error');
+      setErrorReason(params.get('reason'));
+      window.history.replaceState({}, '', window.location.pathname);
+      return;
+    }
+
+    // Check DB status on mount
+    fetch('/.netlify/functions/auth-google-status')
+      .then(r => r.json())
+      .then(d => setStatus(d.connected ? 'connected' : 'disconnected'))
+      .catch(() => setStatus('disconnected'));
+  }, []);
+
+  const connect = useCallback(() => {
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    const redirectUri = `${window.location.origin}/.netlify/functions/auth-google-callback`;
+    const scope = [
+      'https://www.googleapis.com/auth/calendar.readonly',
+      'https://www.googleapis.com/auth/gmail.readonly',
+    ].join(' ');
+    const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+    authUrl.searchParams.set('client_id', clientId);
+    authUrl.searchParams.set('redirect_uri', redirectUri);
+    authUrl.searchParams.set('response_type', 'code');
+    authUrl.searchParams.set('scope', scope);
+    authUrl.searchParams.set('access_type', 'offline');
+    authUrl.searchParams.set('prompt', 'consent');
+    window.location.href = authUrl.toString();
+  }, []);
+
+  return { status, errorReason, connect };
+}
+
 // ─── Main app ─────────────────────────────────────────────────────────────────
 export default function LifeOrganizer() {
   const [tasks, setTasks] = useState([]);
@@ -514,6 +562,8 @@ export default function LifeOrganizer() {
   const { beadsReady, derived, syncedAt, beadsError: beadsStale, loading: worldLoading, error: worldError, refresh: refreshWorld } = useWorldState();
   // Rules Engine: evaluates World State after each sync, returns fired notifications.
   const { notifications, evaluatedAt, loading: rulesLoading, error: rulesError, evaluate, dismiss } = useRulesEngine();
+  // Google OAuth connection state (for Calendar + Gmail adapters).
+  const { status: googleStatus, errorReason: googleErrorReason, connect: connectGoogle } = useGoogleAuth();
   useEffect(() => {
     storageLoad('lo-tasks').then(saved => {
       if (saved) setTasks(saved);
@@ -654,6 +704,42 @@ export default function LifeOrganizer() {
           filter={filter}
           onFilterChange={setFilter}
         />
+
+        {/* Settings — integrations */}
+        <Section title="Settings" defaultOpen={false}>
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs font-medium text-gray-700 mb-1">Google Calendar + Gmail</p>
+              <p className="text-xs text-gray-400 mb-2">
+                Grants read-only access to Calendar events and Gmail messages for the AI context collector.
+              </p>
+              {googleStatus === 'connected' ? (
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-green-50 text-green-700 border border-green-200 rounded-lg">
+                    <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>
+                    Google Connected
+                  </span>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <button
+                    onClick={connectGoogle}
+                    disabled={!import.meta.env.VITE_GOOGLE_CLIENT_ID || googleStatus === 'unknown'}
+                    className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {googleStatus === 'unknown' ? 'Checking…' : 'Connect Google'}
+                  </button>
+                  {!import.meta.env.VITE_GOOGLE_CLIENT_ID && (
+                    <p className="text-xs text-amber-600">VITE_GOOGLE_CLIENT_ID not configured</p>
+                  )}
+                  {googleStatus === 'error' && (
+                    <p className="text-xs text-red-500">Connection failed{googleErrorReason ? ` (${googleErrorReason})` : ''} — please try again</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </Section>
 
         <p className="text-xs text-center text-gray-300">Tasks saved locally · Phase 2</p>
       </div>
