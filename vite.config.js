@@ -22,10 +22,10 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // Cache the app shell and static assets
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        // Don't cache API calls — Beads data is local-only anyway
         navigateFallback: 'index.html',
+        // Exclude Netlify functions and API routes from SW navigation intercept
+        navigateFallbackDenylist: [/^\/\.netlify\//],
         runtimeCaching: [],
       },
     }),
