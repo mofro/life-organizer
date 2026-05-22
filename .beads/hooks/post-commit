@@ -25,7 +25,15 @@ if [ -z "$BEADS_API_KEY" ]; then
   exit 0
 fi
 
-# Fire and forget — background curl so bd CLI is not delayed
+# Push project changes through the full chain before calling Netlify.
+# Without this, Railway syncs from DoltHub before the local changes arrive there.
+# Chain: project .beads/ → bd repo sync → ~/beads-global → bd dolt push → DoltHub
+BGG_DIR="$HOME/beads-global"
+if [ -d "$BGG_DIR" ]; then
+  (cd "$BGG_DIR" && bd repo sync > /dev/null 2>&1 && bd dolt push > /dev/null 2>&1)
+fi
+
+# Now DoltHub is current — Railway pull will get correct data
 curl -s -X POST "$COLLECTOR_URL" \
   -H "Authorization: Bearer $BEADS_API_KEY" \
   --max-time 10 \

@@ -26,7 +26,7 @@
       {
         "hooks": [
           {
-            "command": "bash -c 'if [ -n \"$BEADS_API_KEY\" ]; then curl -s -X POST https://life-organizer-mo.netlify.app/.netlify/functions/collect-world-state -H \"Authorization: Bearer $BEADS_API_KEY\" --max-time 10 > /dev/null 2>&1 & fi'",
+            "command": "bash /Users/mo/Code/life-organizer/.beads/hooks/post-commit",
             "type": "command"
           }
         ],
