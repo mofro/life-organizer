@@ -875,16 +875,6 @@ export default function LifeOrganizer() {
           </Section>
         )}
 
-        {/* Two-column: Add Task + Calendar */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Section title="Add Task" defaultOpen={true}>
-            <TaskForm onAdd={addTask} />
-          </Section>
-          <Section title="Calendar" defaultOpen={true}>
-            <CalendarContent events={calendarEvents} connected={calendarConnected} />
-          </Section>
-        </div>
-
         {/* Unified inbox — manual tasks (open_tasks) + Beads ready issues */}
         <UnifiedTaskList
           tasks={tasks}
@@ -899,6 +889,16 @@ export default function LifeOrganizer() {
           syncedAt={syncedAt}
           onRefresh={handleRefresh}
         />
+
+        {/* Two-column: Add Task + Calendar */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Section title="Add Task" defaultOpen={true}>
+            <TaskForm onAdd={addTask} />
+          </Section>
+          <Section title="Calendar" defaultOpen={true}>
+            <CalendarContent events={calendarEvents} connected={calendarConnected} />
+          </Section>
+        </div>
 
         {/* Settings — integrations */}
         <Section title="Settings" defaultOpen={false}>
