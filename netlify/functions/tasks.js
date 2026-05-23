@@ -52,10 +52,11 @@ function fromDbRow(row) {
     priority:     PRIORITY_FROM_INT[row.priority] ?? 'medium',
     timeRequired: row.time_required_minutes ?? null,
     deadline:     row.deadline   ?? null,
-    source:       row.source     || 'manual',
-    sourceUrl:    row.source_url ?? null,
-    createdAt:    row.created_at,
-    completedAt:  row.completed_at ?? null,
+    source:            row.source              || 'manual',
+    sourceUrl:         row.source_url          ?? null,
+    createdAt:         row.created_at,
+    completedAt:       row.completed_at        ?? null,
+    calendarEventUrl:  row.calendar_event_url  ?? null,
   };
 }
 
@@ -66,29 +67,31 @@ function fromDbRow(row) {
  * (i.e., before the migration has been applied). The DB column default 'general'
  * covers that case. Once the migration runs, category will be persisted correctly.
  */
-function toDbInsert(task, { hasCategory }) {
+function toDbInsert(task, { hasCategory, hasCalendarEventUrl }) {
   const row = {
     user_id:               SUPABASE_USER_ID,
     title:                 task.title,
-    status:                task.status                  || 'pending',
+    status:                task.status                    || 'pending',
     priority:              PRIORITY_TO_INT[task.priority] ?? 2,
-    time_required_minutes: task.timeRequired             || null,
-    deadline:              task.deadline                 || null,
-    source:                task.source                   || 'manual',
-    source_url:            task.sourceUrl                || null,
+    time_required_minutes: task.timeRequired               || null,
+    deadline:              task.deadline                   || null,
+    source:                task.source                     || 'manual',
+    source_url:            task.sourceUrl                  || null,
   };
-  if (hasCategory) row.category = task.category || 'general';
+  if (hasCategory)         row.category           = task.category           || 'general';
+  if (hasCalendarEventUrl) row.calendar_event_url = task.calendarEventUrl   || null;
   return row;
 }
 
-function toDbPatch(updates, { hasCategory }) {
+function toDbPatch(updates, { hasCategory, hasCalendarEventUrl }) {
   const row = {};
   if (updates.title    != null) row.title    = updates.title;
   if (updates.status   != null) row.status   = updates.status;
   if (updates.priority != null) row.priority = PRIORITY_TO_INT[updates.priority] ?? 2;
   if (updates.timeRequired !== undefined) row.time_required_minutes = updates.timeRequired || null;
   if (updates.deadline !== undefined)     row.deadline = updates.deadline || null;
-  if (hasCategory && updates.category != null) row.category = updates.category;
+  if (hasCategory         && updates.category         != null) row.category           = updates.category;
+  if (hasCalendarEventUrl && updates.calendarEventUrl !== undefined) row.calendar_event_url = updates.calendarEventUrl || null;
 
   // Set completed_at when marking a task done
   if (updates.status === 'completed') row.completed_at = new Date().toISOString();
@@ -105,14 +108,13 @@ function json(data, status = 200) {
   });
 }
 
-// ─── Category column probe ────────────────────────────────────────────────────
-// Check once per invocation whether the category column exists.
-// Returns true if the migration has been applied.
+// ─── Column probes ────────────────────────────────────────────────────────────
+// Check once per invocation whether optional columns exist (graceful until migrations run).
 
-async function probeCategory(supabase) {
+async function probeColumn(supabase, column) {
   const { error } = await supabase
     .from('open_tasks')
-    .select('category')
+    .select(column)
     .eq('user_id', SUPABASE_USER_ID)
     .limit(1);
   return !error || error.code !== '42703';
@@ -130,12 +132,18 @@ export default async (req) => {
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-  // Probe for the category column once per request
-  const hasCategory = await probeCategory(supabase);
+  // Probe for optional columns added by later migrations
+  const [hasCategory, hasCalendarEventUrl] = await Promise.all([
+    probeColumn(supabase, 'category'),
+    probeColumn(supabase, 'calendar_event_url'),
+  ]);
 
   // ── GET — list all tasks ─────────────────────────────────────────────────────
   if (method === 'GET') {
-    const select = hasCategory ? '*' : 'id,title,status,priority,time_required_minutes,deadline,source,source_url,created_at,completed_at';
+    // Build select list from available columns — avoids errors when optional migrations haven't run yet
+    const base = 'id,title,status,priority,time_required_minutes,deadline,source,source_url,created_at,completed_at';
+    const extras = [hasCategory && 'category', hasCalendarEventUrl && 'calendar_event_url'].filter(Boolean);
+    const select = extras.length ? `${base},${extras.join(',')}` : base;
     const { data, error } = await supabase
       .from('open_tasks')
       .select(select)
@@ -161,7 +169,7 @@ export default async (req) => {
 
     const { data, error } = await supabase
       .from('open_tasks')
-      .insert(toDbInsert(body, { hasCategory }))
+      .insert(toDbInsert(body, { hasCategory, hasCalendarEventUrl }))
       .select()
       .single();
 
@@ -182,7 +190,7 @@ export default async (req) => {
     try { body = await req.json(); }
     catch { return json({ error: 'Invalid JSON' }, 400); }
 
-    const patch = toDbPatch(body, { hasCategory });
+    const patch = toDbPatch(body, { hasCategory, hasCalendarEventUrl });
     if (Object.keys(patch).length === 0) {
       return json({ error: 'No valid fields to update' }, 400);
     }

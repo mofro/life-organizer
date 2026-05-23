@@ -169,7 +169,29 @@ function useTasks() {
     }
   }, []);
 
-  return { tasks, tasksLoading, addTask, updateStatus, deleteTask, completeTask };
+  // Schedule a task as a Google Calendar event.
+  // Returns the calendarEventUrl on success so TaskRow can show a badge immediately.
+  const scheduleTask = useCallback(async (id) => {
+    try {
+      const res  = await fetch('/.netlify/functions/schedule-task', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ taskId: id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      // Persist calendarEventUrl into task state so the badge shows without reload
+      if (data.calendarEventUrl) {
+        setTasks(prev => prev.map(t => t.id === id ? { ...t, calendarEventUrl: data.calendarEventUrl } : t));
+      }
+      return data.calendarEventUrl ?? null;
+    } catch (e) {
+      console.error('[tasks] scheduleTask failed:', e);
+      throw e; // re-throw so TaskRow can show an error state
+    }
+  }, []);
+
+  return { tasks, tasksLoading, addTask, updateStatus, deleteTask, completeTask, scheduleTask };
 }
 
 // ─── Collapsible section wrapper ─────────────────────────────────────────────
@@ -409,10 +431,26 @@ function TaskForm({ onAdd }) {
 }
 
 // ─── Task row ─────────────────────────────────────────────────────────────────
-function TaskRow({ task, onStatusChange, onDelete }) {
-  const statusColor = { pending: 'text-gray-400', in_progress: 'text-yellow-500', completed: 'text-green-500' };
+function TaskRow({ task, onStatusChange, onDelete, onSchedule }) {
+  const [scheduling, setScheduling] = useState(false);
+  const [scheduleError, setScheduleError] = useState(false);
+
+  const statusColor   = { pending: 'text-gray-400', in_progress: 'text-yellow-500', completed: 'text-green-500' };
   const priorityBadge = { high: 'bg-red-100 text-red-700', medium: 'bg-yellow-100 text-yellow-700', low: 'bg-gray-100 text-gray-600' };
   const isOverdue = task.deadline && new Date(task.deadline) < new Date() && task.status !== 'completed';
+
+  const handleSchedule = useCallback(async () => {
+    setScheduling(true);
+    setScheduleError(false);
+    try {
+      await onSchedule(task.id);
+    } catch {
+      setScheduleError(true);
+      setTimeout(() => setScheduleError(false), 3000);
+    } finally {
+      setScheduling(false);
+    }
+  }, [onSchedule, task.id]);
 
   return (
     <div className={`flex items-start gap-3 py-2.5 border-b border-gray-100 last:border-0 ${task.status === 'completed' ? 'opacity-50' : ''}`}>
@@ -437,6 +475,27 @@ function TaskRow({ task, onStatusChange, onDelete }) {
             </span>
           )}
           <SourceBadge source={task.source || 'manual'} sourceUrl={task.sourceUrl} />
+
+          {/* Calendar scheduling — only for active tasks */}
+          {task.status !== 'completed' && onSchedule && (
+            task.calendarEventUrl
+              ? <a
+                  href={task.calendarEventUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-purple-500 hover:text-purple-700"
+                  onClick={e => e.stopPropagation()}
+                  title="View in Google Calendar"
+                >📅</a>
+              : scheduleError
+                ? <span className="text-xs text-red-400">failed</span>
+                : <button
+                    onClick={handleSchedule}
+                    disabled={scheduling}
+                    className="text-xs text-gray-300 hover:text-purple-500 disabled:opacity-40 transition-colors"
+                    title="Schedule as calendar event"
+                  >{scheduling ? '…' : '📅'}</button>
+          )}
         </div>
       </div>
       <button onClick={() => onDelete(task.id)} className="text-gray-300 hover:text-red-400 text-xs shrink-0 mt-0.5">✕</button>
@@ -481,7 +540,7 @@ function sortUnified(tasks) {
 
 function UnifiedTaskList({
   tasks, beadsReady,
-  onStatusChange, onDelete,
+  onStatusChange, onDelete, onSchedule,
   filter, onFilterChange,
   worldError, worldLoading, beadsStale, syncedAt, onRefresh,
 }) {
@@ -592,7 +651,7 @@ function UnifiedTaskList({
           sorted.map(task =>
             task.source === 'beads'
               ? <BeadsTaskRow key={task.id} task={task} />
-              : <TaskRow key={task.id} task={task} onStatusChange={onStatusChange} onDelete={onDelete} />
+              : <TaskRow key={task.id} task={task} onStatusChange={onStatusChange} onDelete={onDelete} onSchedule={onSchedule} />
           )
         )}
       </div>
@@ -792,7 +851,7 @@ export default function LifeOrganizer() {
   const [filter, setFilter] = useState('active');
 
   // Tasks — Supabase-backed, with optimistic updates and one-time localStorage migration.
-  const { tasks, tasksLoading, addTask, updateStatus, deleteTask, completeTask } = useTasks();
+  const { tasks, tasksLoading, addTask, updateStatus, deleteTask, completeTask, scheduleTask } = useTasks();
 
   // World State: reads from Supabase (via Netlify function) — source of truth in production.
   const { beadsReady, derived, syncedAt, beadsError: beadsStale, loading: worldLoading, error: worldError, refresh: refreshWorld } = useWorldState();
@@ -881,6 +940,7 @@ export default function LifeOrganizer() {
           beadsReady={beadsReady}
           onStatusChange={updateStatus}
           onDelete={deleteTask}
+          onSchedule={scheduleTask}
           filter={filter}
           onFilterChange={setFilter}
           worldError={worldError}
