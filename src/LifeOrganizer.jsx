@@ -500,7 +500,12 @@ function UnifiedTaskList({
     return true; // 'all'
   });
 
-  const sorted = sortUnified(filtered);
+  // Priority cutoff: hide low-priority (P3/P4) Beads issues unless the user
+  // explicitly picks "all". Manual tasks are never hidden regardless of priority.
+  const showAll = filter === 'all';
+  const hiddenBeads = showAll ? 0 : filtered.filter(t => t.source === 'beads' && t.priority === 'low').length;
+  const visible   = showAll ? filtered : filtered.filter(t => !(t.source === 'beads' && t.priority === 'low'));
+  const sorted    = sortUnified(visible);
 
   const filterLabel = {
     all: 'All', active: 'Active', pending: 'Pending',
@@ -559,6 +564,15 @@ function UnifiedTaskList({
             ? <BeadsTaskRow key={task.id} task={task} />
             : <TaskRow key={task.id} task={task} onStatusChange={onStatusChange} onDelete={onDelete} />
         )
+      )}
+
+      {hiddenBeads > 0 && (
+        <button
+          onClick={() => onFilterChange('all')}
+          className="mt-3 w-full text-xs text-gray-300 hover:text-gray-500 text-center py-1 border-t border-gray-100"
+        >
+          {hiddenBeads} low-priority Beads {hiddenBeads === 1 ? 'issue' : 'issues'} hidden · show all
+        </button>
       )}
     </div>
   );
