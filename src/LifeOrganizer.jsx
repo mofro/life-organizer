@@ -485,11 +485,17 @@ function UnifiedTaskList({
   filter, onFilterChange,
   worldError, worldLoading, beadsStale, syncedAt, onRefresh,
 }) {
+  const [tab, setTab] = useState('manual'); // 'manual' | 'beads' | 'all'
   const now = new Date();
   const all = [...tasks, ...beadsReady];
 
-  // Filter — normalises Beads 'open' status so pending/active filters work across both sources
-  const filtered = all.filter(t => {
+  // Tab → source slice
+  const byTab = tab === 'manual' ? all.filter(t => t.source !== 'beads')
+              : tab === 'beads'  ? all.filter(t => t.source === 'beads')
+              : all;
+
+  // Status filter (from QuickStats) applied within the active tab
+  const filtered = byTab.filter(t => {
     const active  = t.status !== 'completed' && t.status !== 'cancelled';
     const pending = t.status === 'pending' || t.status === 'open';
     if (filter === 'pending')     return pending;
@@ -497,15 +503,21 @@ function UnifiedTaskList({
     if (filter === 'completed')   return t.status === 'completed';
     if (filter === 'overdue')     return active && t.deadline && new Date(t.deadline) < now;
     if (filter === 'active')      return active;
-    return true; // 'all'
+    return true;
   });
 
-  // Priority cutoff: hide low-priority (P3/P4) Beads issues unless the user
-  // explicitly picks "all". Manual tasks are never hidden regardless of priority.
-  const showAll = filter === 'all';
-  const hiddenBeads = showAll ? 0 : filtered.filter(t => t.source === 'beads' && t.priority === 'low').length;
-  const visible   = showAll ? filtered : filtered.filter(t => !(t.source === 'beads' && t.priority === 'low'));
-  const sorted    = sortUnified(visible);
+  const sorted = sortUnified(filtered);
+
+  // Badge counts: active items per tab (ignore current status filter so badges always show real totals)
+  const countManual = all.filter(t => t.source !== 'beads' && t.status !== 'completed' && t.status !== 'cancelled').length;
+  const countBeads  = all.filter(t => t.source === 'beads').length;
+  const countAll    = all.filter(t => t.status !== 'completed' && t.status !== 'cancelled').length;
+
+  const TABS = [
+    { key: 'manual', label: 'Manual', count: countManual },
+    { key: 'beads',  label: 'Beads',  count: countBeads  },
+    { key: 'all',    label: 'All',    count: countAll    },
+  ];
 
   const filterLabel = {
     all: 'All', active: 'Active', pending: 'Pending',
@@ -513,67 +525,77 @@ function UnifiedTaskList({
   };
 
   const syncLabel = beadsStale
-    ? '⚠ beads stale'
+    ? '⚠ stale'
     : syncedAt
       ? `synced ${new Date(syncedAt).toLocaleTimeString()}`
       : undefined;
 
+  const EMPTY = {
+    manual: 'No tasks yet — add one above',
+    beads:  'No unblocked Beads issues.',
+    all:    'No tasks yet — add one above',
+  };
+
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-700">
-          Inbox
-          {filter !== 'all' && <span className="ml-1.5 text-xs font-normal text-blue-600">· {filterLabel[filter]}</span>}
-          <span className="ml-1.5 text-xs font-normal text-gray-400">({sorted.length})</span>
+    <div className="bg-white rounded-lg border border-gray-200">
+      {/* Tab bar */}
+      <div className="flex items-center gap-1 px-3 pt-3 pb-2 border-b border-gray-100">
+        {TABS.map(({ key, label, count }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors
+              ${tab === key
+                ? 'bg-blue-100 text-blue-700'
+                : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'}`}
+          >
+            {label}
+            {count > 0 && (
+              <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none
+                ${tab === key ? 'bg-blue-200 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
+                {count}
+              </span>
+            )}
+          </button>
+        ))}
+        <div className="ml-auto flex items-center gap-2">
           {syncLabel && (
-            <span className={`ml-2 text-xs font-normal ${beadsStale ? 'text-amber-500' : 'text-gray-300'}`}>{syncLabel}</span>
+            <span className={`text-xs ${beadsStale ? 'text-amber-500' : 'text-gray-300'}`}>{syncLabel}</span>
           )}
-        </h3>
-        <div className="flex items-center gap-1">
           {onRefresh && (
-            <button onClick={onRefresh} className="text-xs text-gray-300 hover:text-gray-500 mr-1" title="Refresh Beads">↺</button>
+            <button onClick={onRefresh} className="text-xs text-gray-300 hover:text-gray-500" title="Refresh">↺</button>
           )}
-          {['all', 'active'].map(f => (
-            <button
-              key={f}
-              onClick={() => onFilterChange(f)}
-              className={`text-xs px-2 py-1 rounded capitalize ${filter === f ? 'bg-blue-100 text-blue-700' : 'text-gray-400 hover:text-gray-600'}`}
-            >
-              {f}
-            </button>
-          ))}
         </div>
       </div>
 
-      {worldError && (
-        <p className="text-xs text-red-400 mb-2">Beads sync failed: {worldError}</p>
-      )}
-      {worldLoading && all.length === 0 && (
-        <p className="text-xs text-gray-400 py-1">Syncing…</p>
-      )}
+      <div className="p-4">
+        {/* Active filter chip */}
+        {filter !== 'active' && filter !== 'all' && (
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-xs bg-blue-50 text-blue-600 border border-blue-200 rounded-full px-2 py-0.5">
+              {filterLabel[filter]}
+            </span>
+            <button onClick={() => onFilterChange('active')} className="text-xs text-gray-400 hover:text-gray-600">✕ clear</button>
+          </div>
+        )}
 
-      {sorted.length === 0 && !worldLoading ? (
-        <p className="text-sm text-gray-400 text-center py-4">
-          {filter === 'all' || filter === 'active'
-            ? 'No tasks yet — add one above'
-            : `No ${filterLabel[filter]?.toLowerCase()} tasks`}
-        </p>
-      ) : (
-        sorted.map(task =>
-          task.source === 'beads'
-            ? <BeadsTaskRow key={task.id} task={task} />
-            : <TaskRow key={task.id} task={task} onStatusChange={onStatusChange} onDelete={onDelete} />
-        )
-      )}
+        {worldError && (
+          <p className="text-xs text-red-400 mb-2">Beads sync failed: {worldError}</p>
+        )}
+        {worldLoading && all.length === 0 && (
+          <p className="text-xs text-gray-400 py-1">Syncing…</p>
+        )}
 
-      {hiddenBeads > 0 && (
-        <button
-          onClick={() => onFilterChange('all')}
-          className="mt-3 w-full text-xs text-gray-300 hover:text-gray-500 text-center py-1 border-t border-gray-100"
-        >
-          {hiddenBeads} low-priority Beads {hiddenBeads === 1 ? 'issue' : 'issues'} hidden · show all
-        </button>
-      )}
+        {sorted.length === 0 && !worldLoading ? (
+          <p className="text-sm text-gray-400 text-center py-6">{EMPTY[tab]}</p>
+        ) : (
+          sorted.map(task =>
+            task.source === 'beads'
+              ? <BeadsTaskRow key={task.id} task={task} />
+              : <TaskRow key={task.id} task={task} onStatusChange={onStatusChange} onDelete={onDelete} />
+          )
+        )}
+      </div>
     </div>
   );
 }
