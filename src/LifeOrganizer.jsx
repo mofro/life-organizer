@@ -217,12 +217,20 @@ function SourceBadge({ source, sourceUrl }) {
 }
 
 // ─── Stat cards ───────────────────────────────────────────────────────────────
+// Accepts the merged manual + beads task array.
+// Beads statuses are 'open' | 'in_progress'; manual are 'pending' | 'in_progress' | 'completed'.
+// We normalise 'open' → 'pending' for counting so the cards are source-agnostic.
 function QuickStats({ tasks, filter, onFilterChange }) {
   const counts = tasks.reduce((acc, t) => {
-    acc[t.status] = (acc[t.status] || 0) + 1;
+    const key = t.status === 'open' ? 'pending' : t.status;
+    acc[key] = (acc[key] || 0) + 1;
     return acc;
   }, {});
-  const overdue = tasks.filter(t => t.deadline && new Date(t.deadline) < new Date() && t.status === 'pending').length;
+  const now = new Date();
+  const overdue = tasks.filter(t => {
+    const active = t.status !== 'completed' && t.status !== 'cancelled';
+    return t.deadline && new Date(t.deadline) < now && active;
+  }).length;
 
   const stats = [
     { label: 'Pending', filterKey: 'pending',    value: counts.pending    || 0, color: 'text-blue-600',   ring: 'ring-blue-400'   },
@@ -436,31 +444,90 @@ function TaskRow({ task, onStatusChange, onDelete }) {
   );
 }
 
-// ─── Task list ────────────────────────────────────────────────────────────────
-function TaskList({ tasks, onStatusChange, onDelete, filter, onFilterChange }) {
-  const filtered = tasks.filter(t => {
-    if (filter === 'pending')     return t.status === 'pending';
+// ─── Unified task list ────────────────────────────────────────────────────────
+// Merges manual tasks (open_tasks) and Beads issues (beads_ready) into one
+// sorted list. Sort order: overdue → deadline asc (nulls last) → priority → source.
+// Dispatches to TaskRow (manual) or BeadsTaskRow (beads) based on task.source.
+
+const PRIORITY_ORDER = { high: 1, medium: 2, low: 3 };
+
+function sortUnified(tasks) {
+  const now = new Date();
+  return [...tasks].sort((a, b) => {
+    const aActive  = a.status !== 'completed' && a.status !== 'cancelled';
+    const bActive  = b.status !== 'completed' && b.status !== 'cancelled';
+    const aOverdue = aActive && a.deadline && new Date(a.deadline) < now;
+    const bOverdue = bActive && b.deadline && new Date(b.deadline) < now;
+
+    // 1. Overdue tasks surface first
+    if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
+
+    // 2. Deadline ascending (nulls last)
+    if (a.deadline && b.deadline) {
+      const diff = new Date(a.deadline) - new Date(b.deadline);
+      if (diff !== 0) return diff;
+    } else if (a.deadline) return -1;
+    else if (b.deadline)   return  1;
+
+    // 3. Priority (high < medium < low)
+    const ap = PRIORITY_ORDER[a.priority] ?? 2;
+    const bp = PRIORITY_ORDER[b.priority] ?? 2;
+    if (ap !== bp) return ap - bp;
+
+    // 4. Stable: manual tasks before beads at equal priority
+    return (a.source === 'beads' ? 1 : 0) - (b.source === 'beads' ? 1 : 0);
+  });
+}
+
+function UnifiedTaskList({
+  tasks, beadsReady,
+  onStatusChange, onDelete,
+  filter, onFilterChange,
+  worldError, worldLoading, beadsStale, syncedAt, onRefresh,
+}) {
+  const now = new Date();
+  const all = [...tasks, ...beadsReady];
+
+  // Filter — normalises Beads 'open' status so pending/active filters work across both sources
+  const filtered = all.filter(t => {
+    const active  = t.status !== 'completed' && t.status !== 'cancelled';
+    const pending = t.status === 'pending' || t.status === 'open';
+    if (filter === 'pending')     return pending;
     if (filter === 'in_progress') return t.status === 'in_progress';
     if (filter === 'completed')   return t.status === 'completed';
-    if (filter === 'overdue')     return t.deadline && new Date(t.deadline) < new Date() && t.status === 'pending';
-    if (filter === 'active')      return t.status !== 'completed';
-    return true;
+    if (filter === 'overdue')     return active && t.deadline && new Date(t.deadline) < now;
+    if (filter === 'active')      return active;
+    return true; // 'all'
   });
+
+  const sorted = sortUnified(filtered);
 
   const filterLabel = {
     all: 'All', active: 'Active', pending: 'Pending',
     in_progress: 'Doing', completed: 'Done', overdue: 'Overdue',
   };
 
+  const syncLabel = beadsStale
+    ? '⚠ beads stale'
+    : syncedAt
+      ? `synced ${new Date(syncedAt).toLocaleTimeString()}`
+      : undefined;
+
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-gray-700">
-          Tasks
+          Inbox
           {filter !== 'all' && <span className="ml-1.5 text-xs font-normal text-blue-600">· {filterLabel[filter]}</span>}
-          <span className="ml-1.5 text-xs font-normal text-gray-400">({filtered.length})</span>
+          <span className="ml-1.5 text-xs font-normal text-gray-400">({sorted.length})</span>
+          {syncLabel && (
+            <span className={`ml-2 text-xs font-normal ${beadsStale ? 'text-amber-500' : 'text-gray-300'}`}>{syncLabel}</span>
+          )}
         </h3>
-        <div className="flex gap-1">
+        <div className="flex items-center gap-1">
+          {onRefresh && (
+            <button onClick={onRefresh} className="text-xs text-gray-300 hover:text-gray-500 mr-1" title="Refresh Beads">↺</button>
+          )}
           {['all', 'active'].map(f => (
             <button
               key={f}
@@ -472,14 +539,26 @@ function TaskList({ tasks, onStatusChange, onDelete, filter, onFilterChange }) {
           ))}
         </div>
       </div>
-      {filtered.length === 0 ? (
+
+      {worldError && (
+        <p className="text-xs text-red-400 mb-2">Beads sync failed: {worldError}</p>
+      )}
+      {worldLoading && all.length === 0 && (
+        <p className="text-xs text-gray-400 py-1">Syncing…</p>
+      )}
+
+      {sorted.length === 0 && !worldLoading ? (
         <p className="text-sm text-gray-400 text-center py-4">
-          {filter === 'all' ? 'No tasks yet — add one above' : `No ${filterLabel[filter]?.toLowerCase()} tasks`}
+          {filter === 'all' || filter === 'active'
+            ? 'No tasks yet — add one above'
+            : `No ${filterLabel[filter]?.toLowerCase()} tasks`}
         </p>
       ) : (
-        filtered.map(task => (
-          <TaskRow key={task.id} task={task} onStatusChange={onStatusChange} onDelete={onDelete} />
-        ))
+        sorted.map(task =>
+          task.source === 'beads'
+            ? <BeadsTaskRow key={task.id} task={task} />
+            : <TaskRow key={task.id} task={task} onStatusChange={onStatusChange} onDelete={onDelete} />
+        )
       )}
     </div>
   );
@@ -717,8 +796,8 @@ export default function LifeOrganizer() {
           <div className="text-xs text-gray-400">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</div>
         </div>
 
-        {/* Stats — clickable filters (manual tasks only for now) */}
-        <QuickStats tasks={tasks} filter={filter} onFilterChange={setFilter} />
+        {/* Stats — clickable filters across all sources */}
+        <QuickStats tasks={[...tasks, ...beadsReady]} filter={filter} onFilterChange={setFilter} />
 
         {/* Recommendations — across all sources */}
         {recommendations.length > 0 && (
@@ -760,40 +839,6 @@ export default function LifeOrganizer() {
           </Section>
         )}
 
-        {/* Beads — ready issues from World State */}
-        <Section
-          title="Beads — ready to work"
-          subtitle={beadsStale ? '⚠ stale data' : syncedAt ? `synced ${new Date(syncedAt).toLocaleTimeString()}` : undefined}
-          badge={beadsReady.length}
-          defaultOpen={false}
-        >
-          {worldError ? (
-            <div className="text-xs text-red-400 py-2">
-              <p>World State sync failed: {worldError}</p>
-            </div>
-          ) : worldLoading ? (
-            <p className="text-xs text-gray-400 py-2">Syncing…</p>
-          ) : beadsReady.length === 0 ? (
-            <p className="text-xs text-gray-400 py-2">No unblocked issues.</p>
-          ) : (
-            <div>
-              {beadsStale && (
-                <p className="text-xs text-amber-500 mb-2">Beads Service unreachable — showing last known data.</p>
-              )}
-              {beadsReady.map(task => (
-                <BeadsTaskRow
-                  key={task.id}
-                  task={task}
-                />
-              ))}
-              <button
-                onClick={handleRefresh}
-                className="mt-2 text-xs text-gray-400 hover:text-gray-600"
-              >↺ refresh</button>
-            </div>
-          )}
-        </Section>
-
         {/* Two-column: Add Task + Calendar */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Section title="Add Task" defaultOpen={true}>
@@ -804,13 +849,19 @@ export default function LifeOrganizer() {
           </Section>
         </div>
 
-        {/* Manual task list */}
-        <TaskList
+        {/* Unified inbox — manual tasks (open_tasks) + Beads ready issues */}
+        <UnifiedTaskList
           tasks={tasks}
+          beadsReady={beadsReady}
           onStatusChange={updateStatus}
           onDelete={deleteTask}
           filter={filter}
           onFilterChange={setFilter}
+          worldError={worldError}
+          worldLoading={worldLoading}
+          beadsStale={beadsStale}
+          syncedAt={syncedAt}
+          onRefresh={handleRefresh}
         />
 
         {/* Settings — integrations */}
@@ -849,7 +900,7 @@ export default function LifeOrganizer() {
           </div>
         </Section>
 
-        <p className="text-xs text-center text-gray-300">Tasks saved locally · Phase 2</p>
+        <p className="text-xs text-center text-gray-300">Tasks · Beads · Calendar</p>
       </div>
     </div>
   );
