@@ -151,6 +151,7 @@ export default async (req) => {
       location:  item.location ?? null,
       attendees: (item.attendees ?? []).map(a => ({ email: a.email, self: !!a.self })),
       status:    item.status,
+      source:    'google',
     });
   }
 
