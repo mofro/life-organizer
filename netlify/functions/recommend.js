@@ -28,7 +28,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
-const MODEL        = 'claude-3-5-haiku-20241022';
+const MODEL        = 'claude-haiku-4-5-20251001';
 const MAX_TOKENS   = 1024;
 
 // Beads priority int → UI string (0=critical treated as high)
