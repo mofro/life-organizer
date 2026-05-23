@@ -28,42 +28,39 @@ function useCalendarSync() {
   return { events, connected, syncedAt, sync };
 }
 
-// ─── Recommendation engine ───────────────────────────────────────────────────
-function getRecommendations(tasks, calendar) {
-  const pending = tasks.filter(t => t.status === 'pending');
-  if (pending.length === 0) return [];
+// ─── Claude recommendations hook ─────────────────────────────────────────────
+// Calls /.netlify/functions/recommend to get AI-ranked task recommendations.
+// Results are cached server-side for 30 min when the world state hasn't changed.
+function useClaudeRecommendations() {
+  const [recommendations, setRecommendations] = useState([]);
+  const [loading, setLoading]                 = useState(false);
+  const [error, setError]                     = useState(null);
+  const [summary, setSummary]                 = useState(null);
+  const [cached, setCached]                   = useState(false);
+  const [cachedAt, setCachedAt]               = useState(null);
+  const [emptyState, setEmptyState]           = useState(false);
 
-  const now = new Date();
-  const focusToday = calendar.filter(e => e.date === 'today' && e.type === 'focus');
-
-  const scored = pending.map(task => {
-    let score = 0;
-    let reasons = [];
-
-    if (task.deadline) {
-      const daysUntil = (new Date(task.deadline) - now) / (1000 * 60 * 60 * 24);
-      if (daysUntil < 1) { score += 100; reasons.push('due today'); }
-      else if (daysUntil < 3) { score += 60; reasons.push('due soon'); }
-      else if (daysUntil < 7) { score += 30; reasons.push('due this week'); }
+  const ask = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setEmptyState(false);
+    try {
+      const res  = await fetch('/.netlify/functions/recommend', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setRecommendations(data.recommendations || []);
+      setSummary(data.summary   || null);
+      setCached(data.cached     || false);
+      setCachedAt(data.cachedAt || null);
+      setEmptyState(data.emptyState || false);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
     }
+  }, []);
 
-    const priorityBoost = { high: 40, medium: 20, low: 5 };
-    score += priorityBoost[task.priority] || 0;
-
-    if (task.timeRequired && task.timeRequired <= 60) {
-      score += 25;
-      reasons.push('quick win');
-    }
-
-    if (task.timeRequired && task.timeRequired >= 180 && focusToday.length > 0) {
-      score += 20;
-      reasons.push('fits focus block');
-    }
-
-    return { ...task, score, reason: reasons.join(' · ') || task.priority + ' priority' };
-  });
-
-  return scored.sort((a, b) => b.score - a.score).slice(0, 3);
+  return { recommendations, loading, error, summary, cached, cachedAt, emptyState, ask };
 }
 
 // ─── Task persistence hook ────────────────────────────────────────────────────
@@ -861,6 +858,8 @@ export default function LifeOrganizer() {
   const { status: googleStatus, errorReason: googleErrorReason, connect: connectGoogle } = useGoogleAuth();
   // Real Google Calendar events — replaces MOCK_CALENDAR.
   const { events: calendarEvents, connected: calendarConnected, sync: syncCalendar } = useCalendarSync();
+  // Claude recommendations — on-demand, replaces local scoring algorithm.
+  const { recommendations: claudeRecs, loading: recoLoading, error: recoError, summary: recoSummary, cached: recoCached, cachedAt: recoCachedAt, emptyState: recoEmpty, ask: askClaude } = useClaudeRecommendations();
 
   // Run rules engine after world state finishes loading
   const handleRefresh = useCallback(async () => {
@@ -873,10 +872,6 @@ export default function LifeOrganizer() {
     if (!worldLoading && !worldError) evaluate();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [worldLoading]);
-
-  // Recommendations draw from both manual tasks and ready Beads tasks
-  const allTasksForReco = [...tasks, ...beadsReady];
-  const recommendations = getRecommendations(allTasksForReco, calendarEvents);
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
@@ -894,16 +889,62 @@ export default function LifeOrganizer() {
         {/* Stats — clickable filters across all sources */}
         <QuickStats tasks={[...tasks, ...beadsReady]} filter={filter} onFilterChange={setFilter} />
 
-        {/* Recommendations — across all sources */}
-        {recommendations.length > 0 && (
-          <Section title="Recommended now" subtitle="based on deadlines & available time" badge={recommendations.length}>
-            <div className="space-y-2">
-              {recommendations.map(task => (
-                <RecommendationCard key={task.id} task={task} onComplete={completeTask} />
+        {/* Recommendations — Claude-powered, on-demand */}
+        <Section
+          title="Ask Claude"
+          subtitle={claudeRecs.length > 0 ? 'AI recommendations' : 'on-demand recommendations'}
+          badge={claudeRecs.length > 0 ? claudeRecs.length : undefined}
+          defaultOpen={claudeRecs.length > 0 || recoLoading || !!recoError}
+        >
+          {/* Results */}
+          {claudeRecs.length > 0 && (
+            <div className="space-y-2 mb-3">
+              {claudeRecs.map(task => (
+                <RecommendationCard key={task.beadsId ?? task.id} task={task} onComplete={completeTask} />
               ))}
             </div>
-          </Section>
-        )}
+          )}
+
+          {/* Summary line from Claude */}
+          {recoSummary && (
+            <p className="text-xs text-gray-500 italic mb-3">{recoSummary}</p>
+          )}
+
+          {/* Empty state */}
+          {recoEmpty && !recoLoading && (
+            <p className="text-xs text-gray-400 mb-3">
+              No open tasks or unblocked Beads issues. Add a task or run <code className="font-mono">bd ready</code> to surface work.
+            </p>
+          )}
+
+          {/* Prompt text before first ask */}
+          {claudeRecs.length === 0 && !recoLoading && !recoError && !recoEmpty && (
+            <p className="text-xs text-gray-400 mb-3">
+              Claude will rank your open tasks and ready Beads issues by deadline, urgency, and calendar context.
+            </p>
+          )}
+
+          {/* Error */}
+          {recoError && (
+            <p className="text-xs text-red-400 mb-2">{recoError}</p>
+          )}
+
+          {/* Controls */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={askClaude}
+              disabled={recoLoading}
+              className="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              {recoLoading ? 'Thinking…' : claudeRecs.length > 0 ? 'Refresh' : 'Ask Claude'}
+            </button>
+            {recoCached && recoCachedAt && (
+              <span className="text-xs text-gray-300">
+                cached · {new Date(recoCachedAt).toLocaleTimeString()}
+              </span>
+            )}
+          </div>
+        </Section>
 
         {/* Rules Engine notifications */}
         {(notifications.length > 0 || rulesError) && (
