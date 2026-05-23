@@ -830,7 +830,7 @@ function useGoogleAuth() {
     const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
     const redirectUri = `${window.location.origin}/.netlify/functions/auth-google-callback`;
     const scope = [
-      'https://www.googleapis.com/auth/calendar.readonly',
+      'https://www.googleapis.com/auth/calendar.events', // read + create/update/delete events
       'https://www.googleapis.com/auth/gmail.readonly',
     ].join(' ');
     const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
@@ -974,6 +974,11 @@ export default function LifeOrganizer() {
                     <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>
                     Google Connected
                   </span>
+                  <button
+                    onClick={connectGoogle}
+                    className="text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2"
+                    title="Re-authorize to update permissions"
+                  >re-authorize</button>
                 </div>
               ) : (
                 <div className="space-y-1">
