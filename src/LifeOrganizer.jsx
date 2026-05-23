@@ -66,23 +66,110 @@ function getRecommendations(tasks, calendar) {
   return scored.sort((a, b) => b.score - a.score).slice(0, 3);
 }
 
-// ─── Storage helpers ─────────────────────────────────────────────────────────
-async function storageSave(key, value) {
-  try {
-    if (window.storage?.set) await window.storage.set(key, JSON.stringify(value));
-    else localStorage.setItem(key, JSON.stringify(value));
-  } catch {}
-}
+// ─── Task persistence hook ────────────────────────────────────────────────────
+// Loads tasks from Supabase (via the tasks Netlify function) on mount.
+// On first load, migrates any existing localStorage tasks to Supabase.
+// All mutations are optimistic — UI updates immediately, Supabase syncs in background.
+function useTasks() {
+  const [tasks, setTasks]             = useState([]);
+  const [tasksLoading, setTasksLoading] = useState(true);
 
-async function storageLoad(key) {
-  try {
-    if (window.storage?.get) {
-      const result = await window.storage.get(key);
-      return result?.value ? JSON.parse(result.value) : null;
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/.netlify/functions/tasks');
+        const { tasks: remote = [] } = await res.json();
+
+        if (remote.length === 0) {
+          // One-time localStorage migration: if there are tasks in localStorage
+          // and Supabase is empty, push them to Supabase then clear localStorage.
+          const raw = localStorage.getItem('lo-tasks');
+          const local = raw ? JSON.parse(raw) : [];
+          if (local.length > 0) {
+            const migrated = (await Promise.all(
+              local.map(t =>
+                fetch('/.netlify/functions/tasks', {
+                  method:  'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body:    JSON.stringify(t),
+                })
+                  .then(r => r.json())
+                  .then(d => d.task)
+                  .catch(() => null),
+              ),
+            )).filter(Boolean);
+            setTasks(migrated);
+            localStorage.removeItem('lo-tasks');
+            console.log(`[tasks] Migrated ${migrated.length} tasks from localStorage to Supabase`);
+            return;
+          }
+        }
+
+        setTasks(remote);
+      } catch {
+        // Network error — fall back to localStorage so the UI isn't empty
+        const raw = localStorage.getItem('lo-tasks');
+        if (raw) { try { setTasks(JSON.parse(raw)); } catch {} }
+      } finally {
+        setTasksLoading(false);
+      }
+    })();
+  }, []);
+
+  const addTask = useCallback(async (formTask) => {
+    // Use the form-supplied id (Date.now()) as a temporary key while the POST is in flight
+    const tempId = formTask.id ?? Date.now();
+    setTasks(prev => [{ ...formTask, id: tempId }, ...prev]);
+    try {
+      const res  = await fetch('/.netlify/functions/tasks', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(formTask),
+      });
+      const { task } = await res.json();
+      // Swap the temporary id for the Supabase-assigned bigint id
+      setTasks(prev => prev.map(t => t.id === tempId ? task : t));
+    } catch (e) {
+      console.error('[tasks] addTask sync failed:', e);
     }
-    const item = localStorage.getItem(key);
-    return item ? JSON.parse(item) : null;
-  } catch { return null; }
+  }, []);
+
+  const updateStatus = useCallback(async (id, status) => {
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, status } : t));
+    try {
+      await fetch(`/.netlify/functions/tasks?id=${id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ status }),
+      });
+    } catch (e) {
+      console.error('[tasks] updateStatus sync failed:', e);
+    }
+  }, []);
+
+  const deleteTask = useCallback(async (id) => {
+    setTasks(prev => prev.filter(t => t.id !== id));
+    try {
+      await fetch(`/.netlify/functions/tasks?id=${id}`, { method: 'DELETE' });
+    } catch (e) {
+      console.error('[tasks] deleteTask sync failed:', e);
+    }
+  }, []);
+
+  const completeTask = useCallback(async (id) => {
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, status: 'completed' } : t));
+    try {
+      await fetch(`/.netlify/functions/tasks?id=${id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ status: 'completed' }),
+      });
+    } catch (e) {
+      console.error('[tasks] completeTask sync failed:', e);
+    }
+  }, []);
+
+  return { tasks, tasksLoading, addTask, updateStatus, deleteTask, completeTask };
 }
 
 // ─── Collapsible section wrapper ─────────────────────────────────────────────
@@ -587,9 +674,10 @@ function useGoogleAuth() {
 
 // ─── Main app ─────────────────────────────────────────────────────────────────
 export default function LifeOrganizer() {
-  const [tasks, setTasks] = useState([]);
   const [filter, setFilter] = useState('active');
-  const [loaded, setLoaded] = useState(false);
+
+  // Tasks — Supabase-backed, with optimistic updates and one-time localStorage migration.
+  const { tasks, tasksLoading, addTask, updateStatus, deleteTask, completeTask } = useTasks();
 
   // World State: reads from Supabase (via Netlify function) — source of truth in production.
   const { beadsReady, derived, syncedAt, beadsError: beadsStale, loading: worldLoading, error: worldError, refresh: refreshWorld } = useWorldState();
@@ -599,21 +687,6 @@ export default function LifeOrganizer() {
   const { status: googleStatus, errorReason: googleErrorReason, connect: connectGoogle } = useGoogleAuth();
   // Real Google Calendar events — replaces MOCK_CALENDAR.
   const { events: calendarEvents, connected: calendarConnected, sync: syncCalendar } = useCalendarSync();
-  useEffect(() => {
-    storageLoad('lo-tasks').then(saved => {
-      if (saved) setTasks(saved);
-      setLoaded(true);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (loaded) storageSave('lo-tasks', tasks);
-  }, [tasks, loaded]);
-
-  const addTask      = useCallback((task) => setTasks(prev => [task, ...prev]), []);
-  const updateStatus = useCallback((id, status) => setTasks(prev => prev.map(t => t.id === id ? { ...t, status } : t)), []);
-  const deleteTask   = useCallback((id) => setTasks(prev => prev.filter(t => t.id !== id)), []);
-  const completeTask = useCallback((id) => setTasks(prev => prev.map(t => t.id === id ? { ...t, status: 'completed' } : t)), []);
 
   // Run rules engine after world state finishes loading
   const handleRefresh = useCallback(async () => {
