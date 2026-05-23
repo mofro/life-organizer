@@ -56,7 +56,6 @@ function evalDeadlineProximity(rule, { openTasks }) {
         title:   `Deadline ${label}: ${t.title}`,
         body:    `${hoursLeft}h remaining`,
         payload: { task_id: t.id, task_title: t.title, deadline: t.deadline, hours_left: hoursLeft },
-        channel: 'in_app',
       };
     });
 }
@@ -73,7 +72,6 @@ function evalIssueUnblocked(rule, { beadsReady }, alreadyNotifiedIssueIds) {
       title:   `${issue.issue_id} is now ready to claim`,
       body:    issue.title,
       payload: { issue_id: issue.issue_id, issue_title: issue.title, priority: issue.priority },
-      channel: 'in_app',
     }));
 }
 
@@ -102,7 +100,6 @@ function evalTaskStalled(rule, { openTasks }) {
         title:   `Stalled: ${t.title}`,
         body:    `${stalledDays}d without progress · ${daysLeft}d until deadline`,
         payload: { task_id: t.id, task_title: t.title, stalled_days: stalledDays, days_left: daysLeft },
-        channel: 'in_app',
       };
     });
 }
@@ -168,7 +165,6 @@ function evalOpenBlock(rule, { calendarSnapshot, openTasks, beadsReady }) {
         title:   `${label} free — ${task.title ?? task.issue_id} fits`,
         body:    `${task.time_required_minutes}m task · ${label} available now`,
         payload: { gap_minutes: gap.durationMinutes, task_id: task.id ?? task.issue_id },
-        channel: 'in_app',
       });
     }
   }
@@ -261,16 +257,22 @@ export default async () => {
       ? evaluator(rule, worldState, alreadyNotifiedIssueIds)
       : evaluator(rule, worldState);
 
+    const channels = Array.isArray(rule.notification_channels) && rule.notification_channels.length
+      ? rule.notification_channels
+      : ['in_app'];
+
     for (const match of matches) {
-      toInsert.push({
-        user_id:  USER_ID,
-        rule_id:  rule.id,
-        channel:  match.channel ?? 'in_app',
-        title:    match.title,
-        body:     match.body ?? null,
-        payload:  match.payload ?? null,
-        fired_at: now,
-      });
+      for (const ch of channels) {
+        toInsert.push({
+          user_id:  USER_ID,
+          rule_id:  rule.id,
+          channel:  ch,
+          title:    match.title,
+          body:     match.body ?? null,
+          payload:  match.payload ?? null,
+          fired_at: now,
+        });
+      }
     }
   }
 

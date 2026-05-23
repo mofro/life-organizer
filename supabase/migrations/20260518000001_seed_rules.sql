@@ -66,8 +66,7 @@ values (
   'Fires when a Beads issue transitions from blocked to ready (all its blockers are closed).',
   'issue_unblocked',
   '{
-    "priority_max": 1,
-    "notify_channel": "in_app"
+    "priority_max": 1
   }'::jsonb,
   1,   -- P0/P1 only — don't spam for P3/P4 unblocks
   30
