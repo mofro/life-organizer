@@ -114,17 +114,12 @@ export default async (req) => {
   const tomorrow    = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
   const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
+  // Send all events in the 3-day fetch window — PWA re-buckets by browser local date.
   const events = items
     .map(item => {
-      const startIso   = item.start?.dateTime || item.start?.date;
-      const endIso     = item.end?.dateTime   || item.end?.date;
-      const eventDate  = startIso?.split('T')[0];
-      const date =
-        eventDate === todayStr    ? 'today'
-        : eventDate === tomorrowStr ? 'tomorrow'
-        : null;
-
-      if (!date) return null; // outside today/tomorrow window
+      const startIso  = item.start?.dateTime || item.start?.date;
+      const eventDate = startIso?.split('T')[0];
+      if (!eventDate || eventDate < todayStr) return null; // before today UTC (safe lower bound)
       return {
         id:       item.id,
         title:    item.summary || '(No title)',
@@ -132,7 +127,7 @@ export default async (req) => {
         end:      formatTime(item.end?.dateTime)   ?? '23:59',
         startISO: item.start?.dateTime || null,
         endISO:   item.end?.dateTime   || null,
-        date,
+        date:     eventDate, // raw UTC date — PWA will reassign to 'today'/'tomorrow'
         type:     classifyEvent(item),
       };
     })

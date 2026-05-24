@@ -139,9 +139,9 @@ function classifyEvent(raw, allDay) {
 
 /**
  * Normalize raw VEVENT objects into the PWA event shape.
- * Only includes events on todayStr or tomorrowStr (YYYY-MM-DD).
+ * Includes events from todayStr through a 3-day window; PWA re-buckets by local date.
  */
-function normalizeEvents(rawEvents, todayStr, tomorrowStr) {
+function normalizeEvents(rawEvents, todayStr, windowEndStr) {
   const results = [];
 
   for (const ev of rawEvents) {
@@ -152,11 +152,8 @@ function normalizeEvents(rawEvents, todayStr, tomorrowStr) {
     if (!startParsed) continue;
 
     const eventDate = startParsed.iso.split('T')[0];
-    const date =
-      eventDate === todayStr    ? 'today'
-      : eventDate === tomorrowStr ? 'tomorrow'
-      : null;
-    if (!date) continue;
+    // Keep events from today through end of the window; drop past events.
+    if (eventDate < todayStr || eventDate > windowEndStr) continue;
 
     results.push({
       id:       ev.UID?.value ?? `ical-${eventDate}-${Math.random()}`,
@@ -165,7 +162,7 @@ function normalizeEvents(rawEvents, todayStr, tomorrowStr) {
       end:      timeOf(endParsed?.iso, '23:59'),
       startISO: startParsed.allDay ? null : startParsed.iso,
       endISO:   endParsed && !endParsed.allDay ? endParsed.iso : null,
-      date,
+      date:     eventDate, // raw UTC date — PWA will reassign to 'today'/'tomorrow'
       type:     classifyEvent(ev, startParsed.allDay),
     });
   }
@@ -210,18 +207,18 @@ export default async (req) => {
   }
 
   // ── 3. Parse + normalize ─────────────────────────────────────────────────────
-  const now       = new Date();
-  const tomorrow  = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
-  const todayStr    = now.toISOString().split('T')[0];
-  const tomorrowStr = tomorrow.toISOString().split('T')[0];
+  const now          = new Date();
+  const windowEnd    = new Date(now); windowEnd.setDate(windowEnd.getDate() + 3);
+  const todayStr     = now.toISOString().split('T')[0];
+  const windowEndStr = windowEnd.toISOString().split('T')[0];
 
   const rawEvents = parseICS(icsText);
-  const events    = normalizeEvents(rawEvents, todayStr, tomorrowStr);
+  const events    = normalizeEvents(rawEvents, todayStr, windowEndStr);
 
   // ── 4. Upsert to calendar_snapshot (merge with non-Apple events) ─────────────
   const byDate = {};
   for (const ev of events) {
-    const dateStr = ev.date === 'today' ? todayStr : tomorrowStr;
+    const dateStr = ev.date; // raw YYYY-MM-DD from the event
     if (!byDate[dateStr]) byDate[dateStr] = [];
     byDate[dateStr].push({
       id:        ev.id,

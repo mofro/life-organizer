@@ -2,6 +2,32 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useWorldState } from './useWorldState.js';
 import { useRulesEngine } from './useRulesEngine.js';
 
+// Re-assign 'today'/'tomorrow' from startISO using the browser's local date,
+// then discard events outside that window. Falls back to the server date field
+// for all-day events that have no startISO.
+function rebucketByLocalDate(events) {
+  const now         = new Date();
+  const todayLabel  = now.toDateString();
+  const tomorrow    = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowLabel = tomorrow.toDateString();
+
+  return events
+    .map(ev => {
+      let bucket;
+      if (ev.startISO) {
+        const label = new Date(ev.startISO).toDateString();
+        bucket = label === todayLabel ? 'today' : label === tomorrowLabel ? 'tomorrow' : null;
+      } else {
+        // All-day event: server date is YYYY-MM-DD, compare to local date strings
+        const todayISO    = now.toLocaleDateString('en-CA');
+        const tomorrowISO = tomorrow.toLocaleDateString('en-CA');
+        bucket = ev.date === todayISO ? 'today' : ev.date === tomorrowISO ? 'tomorrow' : null;
+      }
+      return bucket ? { ...ev, date: bucket } : null;
+    })
+    .filter(Boolean);
+}
+
 // ─── Calendar sync hook ───────────────────────────────────────────────────────
 // Fetches real Google Calendar events via the server-side calendar-sync function.
 // Falls back to empty array when Google is not connected or the sync fails.
@@ -15,7 +41,7 @@ function useCalendarSync() {
       const res  = await fetch('/.netlify/functions/calendar-sync');
       const data = await res.json();
       setConnected(data.connected ?? false);
-      setEvents(data.events ?? []);
+      setEvents(rebucketByLocalDate(data.events ?? []));
       if (data.synced_at) setSyncedAt(data.synced_at);
     } catch {
       setConnected(false);
@@ -39,7 +65,7 @@ function useICalSync() {
       const res  = await fetch('/.netlify/functions/ical-sync');
       const data = await res.json();
       setConnected(data.connected ?? false);
-      setEvents(data.events ?? []);
+      setEvents(rebucketByLocalDate(data.events ?? []));
     } catch {
       setConnected(false);
       setEvents([]);
