@@ -28,6 +28,66 @@ function useCalendarSync() {
   return { events, connected, syncedAt, sync };
 }
 
+// ─── iCal feed sync hook ─────────────────────────────────────────────────────
+// Fetches Apple/iCal events via ical-sync. Returns same shape as useCalendarSync.
+function useICalSync() {
+  const [events, setEvents]       = useState([]);
+  const [connected, setConnected] = useState(false);
+
+  const sync = useCallback(async () => {
+    try {
+      const res  = await fetch('/.netlify/functions/ical-sync');
+      const data = await res.json();
+      setConnected(data.connected ?? false);
+      setEvents(data.events ?? []);
+    } catch {
+      setConnected(false);
+      setEvents([]);
+    }
+  }, []);
+
+  useEffect(() => { sync(); }, [sync]);
+
+  return { events, connected, sync };
+}
+
+// ─── iCal URL persistence hook ───────────────────────────────────────────────
+// Loads/saves the iCal feed URL via ical-save-url.
+function useICalUrl() {
+  const [url, setUrl]         = useState('');
+  const [saving, setSaving]   = useState(false);
+  const [saveMsg, setSaveMsg] = useState(null); // null | 'saved' | 'error'
+
+  // Load current URL from the sync function on mount (connected=true means URL is set)
+  useEffect(() => {
+    fetch('/.netlify/functions/ical-sync')
+      .then(r => r.json())
+      .then(d => { if (d.connected) setUrl('(configured — paste a new URL to update)'); })
+      .catch(() => {});
+  }, []);
+
+  const save = useCallback(async (newUrl) => {
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const res  = await fetch('/.netlify/functions/ical-save-url', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ url: newUrl }),
+      });
+      const data = await res.json();
+      setSaveMsg(data.ok ? 'saved' : 'error');
+      if (data.ok) setUrl(newUrl ? '(configured — paste a new URL to update)' : '');
+    } catch {
+      setSaveMsg('error');
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
+  return { url, saving, saveMsg, save };
+}
+
 // ─── Claude recommendations hook ─────────────────────────────────────────────
 // Calls /.netlify/functions/recommend to get AI-ranked task recommendations.
 // Results are cached server-side for 30 min when the world state hasn't changed.
@@ -310,20 +370,68 @@ function RecommendationCard({ task, onComplete }) {
   );
 }
 
-// ─── Calendar section ─────────────────────────────────────────────────────────
-function CalendarContent({ events, connected }) {
-  const typeStyle = { meeting: 'bg-blue-100 text-blue-700', focus: 'bg-purple-100 text-purple-700' };
+// ─── iCal URL input form ──────────────────────────────────────────────────────
+function ICalUrlForm({ currentUrl, saving, saveMsg, onSave, onSynced }) {
+  const [input, setInput] = useState('');
 
-  // Still loading (connected === null)
-  if (connected === null) {
+  const handleSave = async () => {
+    await onSave(input.trim());
+    setInput('');
+    if (input.trim()) onSynced(); // refresh events after saving a new URL
+  };
+
+  return (
+    <div className="space-y-1.5">
+      {currentUrl && (
+        <p className="text-xs text-green-600 flex items-center gap-1">
+          <span className="w-1.5 h-1.5 bg-green-500 rounded-full inline-block"></span>
+          iCal connected
+        </p>
+      )}
+      <div className="flex gap-2">
+        <input
+          type="url"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          placeholder={currentUrl ? 'Paste new URL to update…' : 'Paste iCal URL (webcal:// or https://)'}
+          className="flex-1 text-xs px-2 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 placeholder-gray-300"
+        />
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="px-3 py-1.5 text-xs font-medium bg-gray-800 text-white rounded-lg hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        {currentUrl && (
+          <button
+            onClick={() => onSave('')}
+            disabled={saving}
+            className="text-xs text-gray-400 hover:text-red-500 underline underline-offset-2 disabled:opacity-40"
+          >
+            Remove
+          </button>
+        )}
+      </div>
+      {saveMsg === 'saved' && <p className="text-xs text-green-600">Saved — syncing…</p>}
+      {saveMsg === 'error' && <p className="text-xs text-red-500">Save failed — check the URL and try again</p>}
+    </div>
+  );
+}
+
+// ─── Calendar section ─────────────────────────────────────────────────────────
+function CalendarContent({ events, googleConnected, icalConnected, loading }) {
+  const typeStyle = { meeting: 'bg-blue-100 text-blue-700', focus: 'bg-purple-100 text-purple-700' };
+  const connected = googleConnected || icalConnected;
+
+  if (loading) {
     return <p className="text-xs text-gray-300 pt-1">Loading calendar…</p>;
   }
 
-  // Google not connected — prompt user to connect
   if (!connected) {
     return (
       <p className="text-xs text-gray-400 pt-1">
-        Connect Google in <span className="font-medium">Settings</span> to see your real calendar.
+        Connect Google or add an iCal URL in <span className="font-medium">Settings</span>.
       </p>
     );
   }
@@ -856,8 +964,16 @@ export default function LifeOrganizer() {
   const { notifications, evaluatedAt, loading: rulesLoading, error: rulesError, evaluate, dismiss } = useRulesEngine();
   // Google OAuth connection state (for Calendar + Gmail adapters).
   const { status: googleStatus, errorReason: googleErrorReason, connect: connectGoogle } = useGoogleAuth();
-  // Real Google Calendar events — replaces MOCK_CALENDAR.
-  const { events: calendarEvents, connected: calendarConnected, sync: syncCalendar } = useCalendarSync();
+  // Real Google Calendar events.
+  const { events: googleEvents, connected: googleCalConnected, sync: syncGoogleCal } = useCalendarSync();
+  // Apple iCal feed events.
+  const { events: icalEvents, connected: icalConnected, sync: syncICal } = useICalSync();
+  // iCal URL persistence.
+  const { url: icalUrl, saving: icalSaving, saveMsg: icalSaveMsg, save: saveICalUrl } = useICalUrl();
+  // Merge and sort events from both calendar sources by start time.
+  const calendarEvents    = [...googleEvents, ...icalEvents].sort((a, b) => a.start.localeCompare(b.start));
+  const calendarConnected = googleCalConnected || icalConnected;
+  const syncCalendar      = useCallback(() => { syncGoogleCal(); syncICal(); }, [syncGoogleCal, syncICal]);
   // Claude recommendations — on-demand, replaces local scoring algorithm.
   const { recommendations: claudeRecs, loading: recoLoading, error: recoError, summary: recoSummary, cached: recoCached, cachedAt: recoCachedAt, emptyState: recoEmpty, ask: askClaude } = useClaudeRecommendations();
 
@@ -997,7 +1113,12 @@ export default function LifeOrganizer() {
             <TaskForm onAdd={addTask} />
           </Section>
           <Section title="Calendar" defaultOpen={true}>
-            <CalendarContent events={calendarEvents} connected={calendarConnected} />
+            <CalendarContent
+              events={calendarEvents}
+              googleConnected={googleCalConnected}
+              icalConnected={icalConnected}
+              loading={googleCalConnected === null}
+            />
           </Section>
         </div>
 
@@ -1038,6 +1159,20 @@ export default function LifeOrganizer() {
                   )}
                 </div>
               )}
+            </div>
+
+            <div className="border-t border-gray-100 pt-3">
+              <p className="text-xs font-medium text-gray-700 mb-1">Apple Calendar / iCal Feed</p>
+              <p className="text-xs text-gray-400 mb-2">
+                Paste a calendar share URL (<code className="text-gray-500">webcal://</code> or <code className="text-gray-500">https://</code>). Works with iCloud, Fantastical, Outlook, and any CalDAV app.
+              </p>
+              <ICalUrlForm
+                currentUrl={icalUrl}
+                saving={icalSaving}
+                saveMsg={icalSaveMsg}
+                onSave={saveICalUrl}
+                onSynced={syncICal}
+              />
             </div>
           </div>
         </Section>

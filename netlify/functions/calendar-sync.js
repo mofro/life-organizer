@@ -156,10 +156,21 @@ export default async (req) => {
   }
 
   for (const [dateStr, dateEvents] of Object.entries(byDate)) {
+    // Read existing snapshot so we can preserve non-Google events (e.g. source='apple')
+    const { data: snap } = await supabase
+      .from('calendar_snapshot')
+      .select('events')
+      .eq('user_id', SUPABASE_USER_ID)
+      .eq('event_date', dateStr)
+      .single();
+
+    const preserved = (snap?.events ?? []).filter(e => e.source !== 'google');
+    const merged    = [...preserved, ...dateEvents];
+
     const { error: upsertErr } = await supabase
       .from('calendar_snapshot')
       .upsert(
-        { user_id: SUPABASE_USER_ID, event_date: dateStr, events: dateEvents },
+        { user_id: SUPABASE_USER_ID, event_date: dateStr, events: merged },
         { onConflict: 'user_id,event_date' },
       );
     if (upsertErr) {
