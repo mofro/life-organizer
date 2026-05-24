@@ -127,7 +127,7 @@ export default async (req) => {
 
   // ── 3. Parse + normalize ─────────────────────────────────────────────────────
   const now          = new Date();
-  const windowEnd    = new Date(now); windowEnd.setDate(windowEnd.getDate() + 3);
+  const windowEnd    = new Date(now); windowEnd.setDate(windowEnd.getDate() + 14);
   const todayStr     = now.toISOString().split('T')[0];
   const windowEndStr = windowEnd.toISOString().split('T')[0];
 

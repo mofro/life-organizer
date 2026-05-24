@@ -85,9 +85,9 @@ export default async (req) => {
 
   const { access_token } = await tokenRes.json();
 
-  // ── 3. Fetch events: today + tomorrow ────────────────────────────────────────
+  // ── 3. Fetch events: next 14 days ───────────────────────────────────────────
   const now = new Date();
-  const threeDaysOut = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+  const threeDaysOut = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
 
   const calRes = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/primary/events?` +
@@ -108,13 +108,14 @@ export default async (req) => {
   }
 
   const { items = [] } = await calRes.json();
+  if (items.length >= 50) {
+    console.warn('[calendar-sync] Google API returned 50 results (cap hit) — some events in the 14-day window may be missing.');
+  }
 
   // ── 4. Normalize events for the PWA ─────────────────────────────────────────
   const todayStr    = now.toISOString().split('T')[0];
-  const tomorrow    = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
-  // Send all events in the 3-day fetch window — PWA re-buckets by browser local date.
+  // Send all events in the 14-day fetch window — PWA re-buckets by browser local date.
   const events = items
     .map(item => {
       const startIso  = item.start?.dateTime || item.start?.date;
@@ -133,12 +134,12 @@ export default async (req) => {
     })
     .filter(Boolean);
 
-  // ── 5. Upsert to calendar_snapshot (one row per date) ───────────────────────
+  // ── 5. Upsert to calendar_snapshot (one row per date, full 14-day window) ────
   const byDate = {};
   for (const item of items) {
     const startIso  = item.start?.dateTime || item.start?.date;
     const eventDate = startIso?.split('T')[0];
-    if (eventDate !== todayStr && eventDate !== tomorrowStr) continue;
+    if (!eventDate || eventDate < todayStr) continue; // skip past events
     if (!byDate[eventDate]) byDate[eventDate] = [];
     byDate[eventDate].push({
       id:        item.id,
