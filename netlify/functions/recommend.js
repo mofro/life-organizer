@@ -64,7 +64,7 @@ export default async () => {
   const now      = new Date();
 
   // ── Read world state from Supabase ──────────────────────────────────────────
-  const [beadsResult, tasksResult, calendarResult] = await Promise.all([
+  const [beadsResult, tasksResult, prefsResult] = await Promise.all([
     supabase
       .from('beads_ready')
       .select('*')
@@ -77,13 +77,25 @@ export default async () => {
       .not('status', 'in', '(completed,cancelled)')
       .order('deadline', { ascending: true, nullsFirst: false }),
     supabase
-      .from('calendar_snapshot')
-      .select('event_date,events')
+      .from('user_preferences')
+      .select('timezone')
       .eq('user_id', userId)
-      .gte('event_date', now.toISOString().slice(0, 10))
-      .order('event_date', { ascending: true })
-      .limit(7),
+      .single(),
   ]);
+
+  // User's IANA timezone (e.g. 'America/Toronto'). Fall back to UTC if missing.
+  const userTz = prefsResult.data?.timezone || 'UTC';
+
+  // Local date string in user's timezone (YYYY-MM-DD) — used to query the right calendar rows.
+  const localDateStr = now.toLocaleDateString('en-CA', { timeZone: userTz });
+
+  const calendarResult = await supabase
+    .from('calendar_snapshot')
+    .select('event_date,events')
+    .eq('user_id', userId)
+    .gte('event_date', localDateStr)
+    .order('event_date', { ascending: true })
+    .limit(7);
 
   const beadsReady   = beadsResult.data   || [];
   const openTasks    = tasksResult.data   || [];
@@ -127,8 +139,8 @@ export default async () => {
   }
 
   // ── Build Claude prompt ─────────────────────────────────────────────────────
-  const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  const dateStr = now.toLocaleDateString('en-US', { timeZone: userTz, weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const timeStr = now.toLocaleTimeString('en-US', { timeZone: userTz, hour: '2-digit', minute: '2-digit' });
 
   const taskLines = openTasks.map(t => {
     const priority = TASK_PRIORITY[t.priority] ?? 'medium';
@@ -151,14 +163,26 @@ export default async () => {
   }).join('\n');
 
   const calendarLines = calendarRows.map(row => {
-    const evs = Array.isArray(row.events) ? row.events : [];
-    const evStr = evs.map(e => `${e.start ?? ''}–${e.end ?? ''} ${e.title ?? ''}`).join(', ');
+    const raw = Array.isArray(row.events) ? row.events : [];
+    // Deduplicate by event id — same event can appear from both Google and Apple sources.
+    const seen = new Set();
+    const evs  = raw.filter(e => { if (seen.has(e.id)) return false; seen.add(e.id); return true; });
+    const evStr = evs.map(e => {
+      // Prefer ISO strings so we can format in user's timezone; fall back to stored HH:MM.
+      const startLabel = e.startISO
+        ? new Date(e.startISO).toLocaleTimeString('en-US', { timeZone: userTz, hour: '2-digit', minute: '2-digit', hour12: false })
+        : (e.start ?? '');
+      const endLabel = e.endISO
+        ? new Date(e.endISO).toLocaleTimeString('en-US', { timeZone: userTz, hour: '2-digit', minute: '2-digit', hour12: false })
+        : (e.end ?? '');
+      return `${startLabel}–${endLabel} ${e.title ?? ''}`;
+    }).join(', ');
     return `  ${row.event_date}: ${evStr || 'free'}`;
   }).join('\n');
 
   const prompt = `You are a personal AI life organizer. Recommend the 3 most important tasks for the user to work on RIGHT NOW, in priority order.
 
-Current date/time: ${dateStr} at ${timeStr}
+Current date/time: ${dateStr} at ${timeStr} (${userTz})
 
 OPEN TASKS:
 ${taskLines || '  (none)'}
@@ -166,7 +190,7 @@ ${taskLines || '  (none)'}
 READY BEADS ISSUES (software project tasks, no blockers):
 ${beadsLines || '  (none)'}
 
-UPCOMING CALENDAR (next 7 days):
+UPCOMING CALENDAR (next 7 days, times in ${userTz}):
 ${calendarLines || '  (none)'}
 
 Rules:

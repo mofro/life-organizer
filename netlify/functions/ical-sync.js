@@ -4,13 +4,14 @@
 //
 // GET /.netlify/functions/ical-sync
 // Response: { connected: boolean, events: Event[], synced_at?: string, error?: string }
-//   Event: { id, title, start, end, date, type }
-//   date:  'today' | 'tomorrow'
+//   Event: { id, title, start, end, startISO, endISO, date, type }
+//   date:  raw YYYY-MM-DD (UTC) — PWA re-buckets to 'today'/'tomorrow' by local date
 //   type:  'meeting' | 'focus' | 'event'
 //
 // Env vars required:
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_USER_ID
 
+import ical       from 'node-ical';
 import { createClient } from '@supabase/supabase-js';
 
 const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_USER_ID } = process.env;
@@ -22,105 +23,24 @@ function json(data, status = 200) {
   });
 }
 
-// ── Inline iCal parser ────────────────────────────────────────────────────────
+// ── node-ical helpers ─────────────────────────────────────────────────────────
 
-/**
- * Unfold RFC 5545 line continuations and split into logical lines.
- * A folded line ends with CRLF (or LF) followed by a whitespace char on the next line.
- */
-function unfoldLines(text) {
-  return text
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .replace(/\n[ \t]/g, '');
+function getSummary(ev) {
+  if (typeof ev.summary === 'string') return ev.summary;
+  if (ev.summary?.val)                return ev.summary.val;
+  return '(No title)';
 }
 
-/**
- * Parse an iCal text into an array of raw VEVENT objects.
- * Each object is a map of property name → { value, params }.
- * Multi-value properties (e.g. ATTENDEE) are stored as arrays.
- */
-function parseICS(text) {
-  const lines  = unfoldLines(text).split('\n');
-  const events = [];
-  let inEvent  = false;
-  let current  = {};
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-
-    if (trimmed === 'BEGIN:VEVENT') { inEvent = true; current = {}; continue; }
-    if (trimmed === 'END:VEVENT')   { inEvent = false; if (current.UID) events.push(current); continue; }
-    if (!inEvent) continue;
-
-    const colonIdx = trimmed.indexOf(':');
-    if (colonIdx < 0) continue;
-
-    const keyPart = trimmed.slice(0, colonIdx);
-    const rawVal  = trimmed.slice(colonIdx + 1);
-
-    // Split key from params: DTSTART;TZID=America/New_York → base=DTSTART, params={TZID:...}
-    const [baseName, ...paramParts] = keyPart.split(';');
-    const base   = baseName.toUpperCase();
-    const params = Object.fromEntries(
-      paramParts.map(p => {
-        const eq = p.indexOf('=');
-        return eq >= 0 ? [p.slice(0, eq).toUpperCase(), p.slice(eq + 1)] : [p.toUpperCase(), ''];
-      }),
-    );
-
-    // Unescape common iCal text sequences
-    const val = rawVal.replace(/\\n/g, '\n').replace(/\\,/g, ',').replace(/\\\\/g, '\\');
-
-    switch (base) {
-      case 'UID':
-      case 'SUMMARY':
-      case 'STATUS':
-      case 'DTSTART':
-      case 'DTEND':
-        current[base] = { value: val, params };
-        break;
-      case 'ATTENDEE':
-        current.ATTENDEE = current.ATTENDEE ?? [];
-        current.ATTENDEE.push(val);
-        break;
-    }
-  }
-
-  return events;
+function getAttendeeCount(ev) {
+  if (!ev.attendee)                    return 0;
+  if (Array.isArray(ev.attendee))      return ev.attendee.length;
+  if (typeof ev.attendee === 'object') return 1;
+  return 0;
 }
 
-/**
- * Parse an iCal date/datetime value into an ISO 8601 string.
- * Returns { iso: string, allDay: boolean } or null if unparseable.
- *
- * Handles:
- *   VALUE=DATE   → YYYYMMDD (all-day)
- *   UTC          → YYYYMMDDTHHmmssZ
- *   Floating     → YYYYMMDDTHHmmss (treated as UTC for date-bucketing)
- *   TZID         → YYYYMMDDTHHmmss (timezone stripped; used only for date/time extraction)
- */
-function parseDateVal(value, params) {
-  if (!value) return null;
-
-  if (params?.VALUE === 'DATE' || /^\d{8}$/.test(value)) {
-    // All-day date: YYYYMMDD
-    const y = value.slice(0, 4), m = value.slice(4, 6), d = value.slice(6, 8);
-    return { iso: `${y}-${m}-${d}T00:00:00Z`, allDay: true };
-  }
-
-  // Datetime: YYYYMMDDTHHmmss[Z]
-  const match = value.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
-  if (!match) return null;
-
-  const [, y, mo, d, h, min, s, z] = match;
-  // UTC (Z): keep Z so the browser knows to convert to local time.
-  // Floating/TZID (no Z): omit suffix so the browser treats it as local time —
-  // best-effort without a server-side tz database.
-  return {
-    iso:    `${y}-${mo}-${d}T${h}:${min}:${s}${z}`,
-    allDay: false,
-  };
+function classifyEvent(ev, allDay) {
+  if (allDay) return 'event';
+  return getAttendeeCount(ev) > 0 ? 'meeting' : 'focus';
 }
 
 /** HH:MM from an ISO string, or the fallback. */
@@ -130,40 +50,39 @@ function timeOf(iso, fallback) {
 }
 
 /**
- * Classify an event: meeting (has attendees), event (all-day), focus (personal timed block).
+ * Convert parsed node-ical events into PWA event shape.
+ * node-ical returns proper JavaScript Date objects — TZID is handled correctly,
+ * all dates are UTC internally. All-day events have ev.start.dateOnly = true.
+ *
+ * Returns all events in [todayStr, windowEndStr] (UTC date range).
+ * PWA re-buckets 'today'/'tomorrow' from startISO using browser local date.
  */
-function classifyEvent(raw, allDay) {
-  if (allDay) return 'event';
-  return (raw.ATTENDEE?.length ?? 0) > 0 ? 'meeting' : 'focus';
-}
-
-/**
- * Normalize raw VEVENT objects into the PWA event shape.
- * Includes events from todayStr through a 3-day window; PWA re-buckets by local date.
- */
-function normalizeEvents(rawEvents, todayStr, windowEndStr) {
+function normalizeEvents(icalEvents, todayStr, windowEndStr) {
   const results = [];
 
-  for (const ev of rawEvents) {
-    if (ev.STATUS?.value === 'CANCELLED') continue;
+  for (const ev of Object.values(icalEvents)) {
+    if (ev.type !== 'VEVENT')      continue;
+    if (!ev.start)                 continue;
+    if (ev.status === 'CANCELLED') continue;
 
-    const startParsed = parseDateVal(ev.DTSTART?.value, ev.DTSTART?.params);
-    const endParsed   = parseDateVal(ev.DTEND?.value,   ev.DTEND?.params);
-    if (!startParsed) continue;
+    const allDay   = !!ev.start.dateOnly;
+    const startISO = ev.start instanceof Date ? ev.start.toISOString() : null;
+    if (!startISO) continue;
 
-    const eventDate = startParsed.iso.split('T')[0];
-    // Keep events from today through end of the window; drop past events.
+    const eventDate = startISO.split('T')[0];
     if (eventDate < todayStr || eventDate > windowEndStr) continue;
 
+    const endISO = (ev.end instanceof Date && !allDay) ? ev.end.toISOString() : null;
+
     results.push({
-      id:       ev.UID?.value ?? `ical-${eventDate}-${Math.random()}`,
-      title:    ev.SUMMARY?.value || '(No title)',
-      start:    timeOf(startParsed.iso, '00:00'),
-      end:      timeOf(endParsed?.iso, '23:59'),
-      startISO: startParsed.allDay ? null : startParsed.iso,
-      endISO:   endParsed && !endParsed.allDay ? endParsed.iso : null,
-      date:     eventDate, // raw UTC date — PWA will reassign to 'today'/'tomorrow'
-      type:     classifyEvent(ev, startParsed.allDay),
+      id:       ev.uid   ?? `ical-${eventDate}-${Math.random()}`,
+      title:    getSummary(ev),
+      start:    allDay ? '00:00' : timeOf(startISO, '00:00'),
+      end:      allDay ? '23:59' : timeOf(endISO,   '23:59'),
+      startISO: allDay ? null : startISO,
+      endISO:   allDay ? null : endISO,
+      date:     eventDate,   // UTC date — PWA re-buckets to 'today'/'tomorrow'
+      type:     classifyEvent(ev, allDay),
     });
   }
 
@@ -212,19 +131,28 @@ export default async (req) => {
   const todayStr     = now.toISOString().split('T')[0];
   const windowEndStr = windowEnd.toISOString().split('T')[0];
 
-  const rawEvents = parseICS(icsText);
-  const events    = normalizeEvents(rawEvents, todayStr, windowEndStr);
+  let icalEvents;
+  try {
+    icalEvents = await ical.async.parseICS(icsText);
+  } catch (err) {
+    console.error('[ical-sync] Parse error:', err.message);
+    return json({ connected: true, error: 'parse_failed', events: [] });
+  }
+
+  const events = normalizeEvents(icalEvents, todayStr, windowEndStr);
 
   // ── 4. Upsert to calendar_snapshot (merge with non-Apple events) ─────────────
   const byDate = {};
   for (const ev of events) {
-    const dateStr = ev.date; // raw YYYY-MM-DD from the event
+    const dateStr = ev.date;
     if (!byDate[dateStr]) byDate[dateStr] = [];
     byDate[dateStr].push({
       id:        ev.id,
       title:     ev.title,
-      start:     ev.start,
-      end:       ev.end,
+      start:     ev.startISO ?? ev.start,  // full ISO string; HH:MM fallback for all-day
+      end:       ev.endISO   ?? ev.end,
+      startISO:  ev.startISO,
+      endISO:    ev.endISO,
       location:  null,
       attendees: [],
       status:    'confirmed',
