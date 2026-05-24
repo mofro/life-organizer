@@ -1,10 +1,10 @@
-// Fetches Google Calendar events for today + tomorrow, writes to calendar_snapshot,
+// Fetches Google Calendar events (next 14 days), writes to calendar_snapshot,
 // and returns a normalized event list to the PWA.
 //
 // GET /.netlify/functions/calendar-sync
 // Response: { connected: boolean, events: Event[], synced_at?: string, error?: string }
-//   Event: { id, title, start, end, date, type }
-//   date:  'today' | 'tomorrow'
+//   Event: { id, title, start, end, startISO, endISO, date, type }
+//   date:  raw YYYY-MM-DD (UTC) — PWA re-buckets to 'today'/'tomorrow' by local date
 //   type:  'meeting' | 'focus' | 'event'
 //
 // Env vars required:
@@ -12,6 +12,7 @@
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_USER_ID
 
 import { createClient } from '@supabase/supabase-js';
+import { syncGoogle }   from '../lib/calendarSyncLogic.js';
 
 const {
   GOOGLE_CLIENT_ID,
@@ -28,157 +29,15 @@ function json(data, status = 200) {
   });
 }
 
-/** Extract HH:MM from a Google dateTime string like "2026-05-22T14:30:00-04:00". */
-function formatTime(iso) {
-  if (!iso) return null;
-  const match = iso.match(/T(\d{2}:\d{2})/);
-  return match ? match[1] : null;
-}
-
-/**
- * Classify a Google Calendar event into the PWA's type system.
- * meeting — event has other attendees
- * focus   — single-person / no attendees (e.g. focus blocks, reminders)
- * event   — all-day or no start time
- */
-function classifyEvent(item) {
-  if (!item.start?.dateTime) return 'event'; // all-day
-  const others = (item.attendees ?? []).filter(a => !a.self);
-  return others.length > 0 ? 'meeting' : 'focus';
-}
-
 export default async (req) => {
-  if (req.method !== 'GET') {
-    return json({ error: 'Method not allowed' }, 405);
-  }
+  if (req.method !== 'GET') return json({ error: 'Method not allowed' }, 405);
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-  // ── 1. Check for stored refresh token ────────────────────────────────────────
-  const { data: prefs, error: dbError } = await supabase
-    .from('user_preferences')
-    .select('google_refresh_token')
-    .eq('user_id', SUPABASE_USER_ID)
-    .single();
+  const result = await syncGoogle(supabase, SUPABASE_USER_ID, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
 
-  if (dbError || !prefs?.google_refresh_token) {
-    return json({ connected: false, events: [] });
-  }
+  if (!result.connected) return json({ connected: false, events: [] });
+  if (result.error)      return json({ connected: true, error: result.error, events: [] });
 
-  // ── 2. Exchange refresh token for a fresh access token ───────────────────────
-  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: GOOGLE_CLIENT_ID,
-      client_secret: GOOGLE_CLIENT_SECRET,
-      refresh_token: prefs.google_refresh_token,
-      grant_type: 'refresh_token',
-    }),
-  });
-
-  if (!tokenRes.ok) {
-    const body = await tokenRes.text();
-    console.error('[calendar-sync] Token refresh failed:', body);
-    return json({ connected: true, error: 'token_refresh_failed', events: [] });
-  }
-
-  const { access_token } = await tokenRes.json();
-
-  // ── 3. Fetch events: next 14 days ───────────────────────────────────────────
-  const now = new Date();
-  const threeDaysOut = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
-
-  const calRes = await fetch(
-    `https://www.googleapis.com/calendar/v3/calendars/primary/events?` +
-      new URLSearchParams({
-        timeMin: now.toISOString(),
-        timeMax: threeDaysOut.toISOString(),
-        singleEvents: 'true',
-        orderBy: 'startTime',
-        maxResults: '50',
-      }),
-    { headers: { Authorization: `Bearer ${access_token}` } },
-  );
-
-  if (!calRes.ok) {
-    const body = await calRes.text();
-    console.error('[calendar-sync] Calendar API error:', body);
-    return json({ connected: true, error: 'calendar_fetch_failed', events: [] });
-  }
-
-  const { items = [] } = await calRes.json();
-  if (items.length >= 50) {
-    console.warn('[calendar-sync] Google API returned 50 results (cap hit) — some events in the 14-day window may be missing.');
-  }
-
-  // ── 4. Normalize events for the PWA ─────────────────────────────────────────
-  const todayStr    = now.toISOString().split('T')[0];
-
-  // Send all events in the 14-day fetch window — PWA re-buckets by browser local date.
-  const events = items
-    .map(item => {
-      const startIso  = item.start?.dateTime || item.start?.date;
-      const eventDate = startIso?.split('T')[0];
-      if (!eventDate || eventDate < todayStr) return null; // before today UTC (safe lower bound)
-      return {
-        id:       item.id,
-        title:    item.summary || '(No title)',
-        start:    formatTime(item.start?.dateTime) ?? '00:00',
-        end:      formatTime(item.end?.dateTime)   ?? '23:59',
-        startISO: item.start?.dateTime || null,
-        endISO:   item.end?.dateTime   || null,
-        date:     eventDate, // raw UTC date — PWA will reassign to 'today'/'tomorrow'
-        type:     classifyEvent(item),
-      };
-    })
-    .filter(Boolean);
-
-  // ── 5. Upsert to calendar_snapshot (one row per date, full 14-day window) ────
-  const byDate = {};
-  for (const item of items) {
-    const startIso  = item.start?.dateTime || item.start?.date;
-    const eventDate = startIso?.split('T')[0];
-    if (!eventDate || eventDate < todayStr) continue; // skip past events
-    if (!byDate[eventDate]) byDate[eventDate] = [];
-    byDate[eventDate].push({
-      id:        item.id,
-      title:     item.summary || '(No title)',
-      start:     item.start?.dateTime || item.start?.date,
-      end:       item.end?.dateTime   || item.end?.date,
-      location:  item.location ?? null,
-      attendees: (item.attendees ?? []).map(a => ({ email: a.email, self: !!a.self })),
-      status:    item.status,
-      source:    'google',
-    });
-  }
-
-  for (const [dateStr, dateEvents] of Object.entries(byDate)) {
-    // Read existing snapshot so we can preserve non-Google events (e.g. source='apple')
-    const { data: snap } = await supabase
-      .from('calendar_snapshot')
-      .select('events')
-      .eq('user_id', SUPABASE_USER_ID)
-      .eq('event_date', dateStr)
-      .single();
-
-    const preserved = (snap?.events ?? []).filter(e => e.source !== 'google');
-    const merged    = [...preserved, ...dateEvents];
-
-    const { error: upsertErr } = await supabase
-      .from('calendar_snapshot')
-      .upsert(
-        { user_id: SUPABASE_USER_ID, event_date: dateStr, events: merged },
-        { onConflict: 'user_id,event_date' },
-      );
-    if (upsertErr) {
-      console.error('[calendar-sync] Snapshot upsert failed for', dateStr, upsertErr.message);
-    }
-  }
-
-  return json({
-    connected: true,
-    events,
-    synced_at: new Date().toISOString(),
-  });
+  return json({ connected: true, events: result.events, synced_at: new Date().toISOString() });
 };

@@ -30,3 +30,7 @@
   for = "/manifest.webmanifest"
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
+
+# Nightly calendar sync — 06:00 UTC daily
+[functions."calendar-sync-scheduled"]
+  schedule = "0 6 * * *"
