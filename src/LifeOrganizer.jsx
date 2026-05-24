@@ -419,6 +419,11 @@ function ICalUrlForm({ currentUrl, saving, saveMsg, onSave, onSynced }) {
   );
 }
 
+function localTime(iso) {
+  if (!iso) return null;
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
 // ─── Calendar section ─────────────────────────────────────────────────────────
 function CalendarContent({ events, googleConnected, icalConnected, loading }) {
   const typeStyle = { meeting: 'bg-blue-100 text-blue-700', focus: 'bg-purple-100 text-purple-700' };
@@ -449,7 +454,9 @@ function CalendarContent({ events, googleConnected, icalConnected, loading }) {
             <div className="space-y-1">
               {evs.map(ev => (
                 <div key={ev.id} className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400 w-20 shrink-0">{ev.start}–{ev.end}</span>
+                  <span className="text-xs text-gray-400 w-20 shrink-0">
+                    {localTime(ev.startISO) ?? ev.start}–{localTime(ev.endISO) ?? ev.end}
+                  </span>
                   <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${typeStyle[ev.type] || 'bg-gray-100 text-gray-600'}`}>{ev.title}</span>
                 </div>
               ))}

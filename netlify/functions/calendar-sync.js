@@ -126,12 +126,14 @@ export default async (req) => {
 
       if (!date) return null; // outside today/tomorrow window
       return {
-        id:    item.id,
-        title: item.summary || '(No title)',
-        start: formatTime(item.start?.dateTime) ?? '00:00',
-        end:   formatTime(item.end?.dateTime)   ?? '23:59',
+        id:       item.id,
+        title:    item.summary || '(No title)',
+        start:    formatTime(item.start?.dateTime) ?? '00:00',
+        end:      formatTime(item.end?.dateTime)   ?? '23:59',
+        startISO: item.start?.dateTime || null,
+        endISO:   item.end?.dateTime   || null,
         date,
-        type:  classifyEvent(item),
+        type:     classifyEvent(item),
       };
     })
     .filter(Boolean);

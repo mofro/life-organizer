@@ -114,8 +114,11 @@ function parseDateVal(value, params) {
   if (!match) return null;
 
   const [, y, mo, d, h, min, s, z] = match;
+  // UTC (Z): keep Z so the browser knows to convert to local time.
+  // Floating/TZID (no Z): omit suffix so the browser treats it as local time —
+  // best-effort without a server-side tz database.
   return {
-    iso:    `${y}-${mo}-${d}T${h}:${min}:${s}${z || 'Z'}`,
+    iso:    `${y}-${mo}-${d}T${h}:${min}:${s}${z}`,
     allDay: false,
   };
 }
@@ -156,12 +159,14 @@ function normalizeEvents(rawEvents, todayStr, tomorrowStr) {
     if (!date) continue;
 
     results.push({
-      id:    ev.UID?.value ?? `ical-${eventDate}-${Math.random()}`,
-      title: ev.SUMMARY?.value || '(No title)',
-      start: timeOf(startParsed.iso, '00:00'),
-      end:   timeOf(endParsed?.iso, '23:59'),
+      id:       ev.UID?.value ?? `ical-${eventDate}-${Math.random()}`,
+      title:    ev.SUMMARY?.value || '(No title)',
+      start:    timeOf(startParsed.iso, '00:00'),
+      end:      timeOf(endParsed?.iso, '23:59'),
+      startISO: startParsed.allDay ? null : startParsed.iso,
+      endISO:   endParsed && !endParsed.allDay ? endParsed.iso : null,
       date,
-      type:  classifyEvent(ev, startParsed.allDay),
+      type:     classifyEvent(ev, startParsed.allDay),
     });
   }
 
