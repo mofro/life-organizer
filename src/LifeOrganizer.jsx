@@ -748,7 +748,8 @@ function UnifiedTaskList({
   filter, onFilterChange,
   worldError, worldLoading, beadsStale, syncedAt, onRefresh,
 }) {
-  const [tab, setTab] = useState('beads'); // 'manual' | 'beads' | 'all'
+  const [tab, setTab]   = useState('beads'); // 'manual' | 'beads' | 'all'
+  const [open, setOpen] = useState(true);
   const now = new Date();
   const all = [...tasks, ...beadsReady];
 
@@ -827,10 +828,17 @@ function UnifiedTaskList({
           {onRefresh && (
             <button onClick={onRefresh} className="text-xs text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400" title="Refresh">↺</button>
           )}
+          <button
+            onClick={() => setOpen(o => !o)}
+            className="text-xs text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 transition-transform duration-150"
+            title={open ? 'Collapse' : 'Expand'}
+          >
+            <span className={`inline-block transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>▾</span>
+          </button>
         </div>
       </div>
 
-      <div className="p-4">
+      {open && <div className="p-4">
         {/* Active filter chip */}
         {filter !== 'active' && filter !== 'all' && (
           <div className="flex items-center gap-2 mb-3">
@@ -890,7 +898,7 @@ function UnifiedTaskList({
               : <TaskRow key={task.id} task={task} onStatusChange={onStatusChange} onDelete={onDelete} onSchedule={onSchedule} />
           )
         )}
-      </div>
+      </div>}
     </div>
   );
 }
