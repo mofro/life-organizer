@@ -676,13 +676,52 @@ function sortUnified(tasks) {
   });
 }
 
+// Groups beadsReady tasks by their parent feature for the Hierarchy view.
+// Returns { groups: [{ featureId, featureTitle, featurePriority, tasks[] }], standalone: [] }
+// Feature groups sorted by featurePriority ASC (ties: title alphabetically).
+// Tasks within each group sorted by priority. Standalone tasks sorted by priority.
+function groupByFeature(beads) {
+  const featureMap = new Map();
+  const standalone = [];
+
+  for (const task of beads) {
+    if (task.parentFeatureId) {
+      if (!featureMap.has(task.parentFeatureId)) {
+        featureMap.set(task.parentFeatureId, {
+          featureId:       task.parentFeatureId,
+          featureTitle:    task.parentFeatureTitle,
+          featurePriority: task.parentPriority,
+          tasks:           [],
+        });
+      }
+      featureMap.get(task.parentFeatureId).tasks.push(task);
+    } else {
+      standalone.push(task);
+    }
+  }
+
+  const groups = [...featureMap.values()].sort((a, b) => {
+    const pa = a.featurePriority ?? 99;
+    const pb = b.featurePriority ?? 99;
+    if (pa !== pb) return pa - pb;
+    return (a.featureTitle || '').localeCompare(b.featureTitle || '');
+  });
+
+  for (const group of groups) {
+    group.tasks.sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 2) - (PRIORITY_ORDER[b.priority] ?? 2));
+  }
+  standalone.sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 2) - (PRIORITY_ORDER[b.priority] ?? 2));
+
+  return { groups, standalone };
+}
+
 function UnifiedTaskList({
   tasks, beadsReady,
   onStatusChange, onDelete, onSchedule,
   filter, onFilterChange,
   worldError, worldLoading, beadsStale, syncedAt, onRefresh,
 }) {
-  const [tab, setTab] = useState('manual'); // 'manual' | 'beads' | 'all'
+  const [tab, setTab] = useState('manual'); // 'manual' | 'beads' | 'all' | 'hierarchy'
   const now = new Date();
   const all = [...tasks, ...beadsReady];
 
@@ -706,14 +745,16 @@ function UnifiedTaskList({
   const sorted = sortUnified(filtered);
 
   // Badge counts: active items per tab (ignore current status filter so badges always show real totals)
-  const countManual = all.filter(t => t.source !== 'beads' && t.status !== 'completed' && t.status !== 'cancelled').length;
-  const countBeads  = all.filter(t => t.source === 'beads').length;
-  const countAll    = all.filter(t => t.status !== 'completed' && t.status !== 'cancelled').length;
+  const countManual    = all.filter(t => t.source !== 'beads' && t.status !== 'completed' && t.status !== 'cancelled').length;
+  const countBeads     = all.filter(t => t.source === 'beads').length;
+  const countAll       = all.filter(t => t.status !== 'completed' && t.status !== 'cancelled').length;
+  const hasHierarchy   = beadsReady.some(t => t.parentFeatureId);
 
   const TABS = [
-    { key: 'manual', label: 'Manual', count: countManual },
-    { key: 'beads',  label: 'Beads',  count: countBeads  },
-    { key: 'all',    label: 'All',    count: countAll    },
+    { key: 'manual',    label: 'Manual',    count: countManual },
+    { key: 'beads',     label: 'Beads',     count: countBeads  },
+    { key: 'all',       label: 'All',       count: countAll    },
+    ...(hasHierarchy ? [{ key: 'hierarchy', label: 'Hierarchy', count: countBeads }] : []),
   ];
 
   const filterLabel = {
@@ -728,9 +769,10 @@ function UnifiedTaskList({
       : undefined;
 
   const EMPTY = {
-    manual: 'No tasks yet — add one above',
-    beads:  'No unblocked Beads issues.',
-    all:    'No tasks yet — add one above',
+    manual:    'No tasks yet — add one above',
+    beads:     'No unblocked Beads issues.',
+    all:       'No tasks yet — add one above',
+    hierarchy: 'No unblocked Beads issues.',
   };
 
   return (
@@ -783,7 +825,40 @@ function UnifiedTaskList({
           <p className="text-xs text-gray-400 py-1">Syncing…</p>
         )}
 
-        {sorted.length === 0 && !worldLoading ? (
+        {tab === 'hierarchy' ? (() => {
+          const { groups, standalone } = groupByFeature(beadsReady);
+          if (groups.length === 0 && standalone.length === 0) {
+            return <p className="text-sm text-gray-400 text-center py-6">{EMPTY.hierarchy}</p>;
+          }
+          return (
+            <div>
+              {groups.map(({ featureId, featureTitle, featurePriority, tasks }) => (
+                <div key={featureId} className="mb-4">
+                  <div className="flex items-center gap-2 px-1 py-1.5 mb-1 border-b border-gray-100">
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Feature</span>
+                    <span className="text-sm font-medium text-gray-700 flex-1">{featureTitle}</span>
+                    {featurePriority !== null && (
+                      <span className="text-xs bg-gray-100 text-gray-500 rounded px-1.5 py-0.5 font-mono">P{featurePriority}</span>
+                    )}
+                  </div>
+                  <div className="pl-3">
+                    {tasks.map(task => <BeadsTaskRow key={task.id} task={task} />)}
+                  </div>
+                </div>
+              ))}
+              {standalone.length > 0 && (
+                <div className="mb-4">
+                  <div className="flex items-center gap-2 px-1 py-1.5 mb-1 border-b border-gray-100">
+                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Standalone Tasks</span>
+                  </div>
+                  <div className="pl-3">
+                    {standalone.map(task => <BeadsTaskRow key={task.id} task={task} />)}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })() : sorted.length === 0 && !worldLoading ? (
           <p className="text-sm text-gray-400 text-center py-6">{EMPTY[tab]}</p>
         ) : (
           sorted.map(task =>

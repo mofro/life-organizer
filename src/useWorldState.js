@@ -49,8 +49,11 @@ function normaliseBeadsRow(row) {
     source:      'beads',
     sourceUrl:   null,
     project:     projectFromId(row.issue_id),
-    blockedBy:   row.blocked_by || [],
-    createdAt:   row.created_at,
+    blockedBy:          row.blocked_by           || [],
+    createdAt:          row.created_at,
+    parentFeatureId:    row.parent_feature_id    || null,
+    parentFeatureTitle: row.parent_feature_title || null,
+    parentPriority:     row.parent_priority      ?? null,
   };
 }
 

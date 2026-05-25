@@ -154,13 +154,63 @@ export default async () => {
     return parts.join(' ');
   }).join('\n');
 
-  const beadsLines = beadsReady.map(b => {
-    const pri   = b.priority !== null ? `P${b.priority}` : 'P2';
-    const parts = [`- [beads:${b.issue_id}] "${b.title}" priority:${pri}`];
-    if (b.status === 'in_progress') parts.push('(active)');
-    if (b.issue_type && b.issue_type !== 'task') parts.push(`type:${b.issue_type}`);
-    return parts.join(' ');
-  }).join('\n');
+  // Build beads section: hierarchy block when parent feature data is available,
+  // otherwise flat list for backward compatibility (e.g. before migration is applied).
+  const hasHierarchyData = beadsReady.some(b => b.parent_feature_id);
+
+  let beadsLines;
+  if (hasHierarchyData) {
+    // Group by parent feature, sort feature groups by priority, tasks within group by priority.
+    const featureMap = new Map();
+    const standalone = [];
+    for (const b of beadsReady) {
+      if (b.parent_feature_id) {
+        if (!featureMap.has(b.parent_feature_id)) {
+          featureMap.set(b.parent_feature_id, {
+            title:    b.parent_feature_title,
+            priority: b.parent_priority,
+            tasks:    [],
+          });
+        }
+        featureMap.get(b.parent_feature_id).tasks.push(b);
+      } else {
+        standalone.push(b);
+      }
+    }
+
+    const featureGroups = [...featureMap.entries()]
+      .sort(([, a], [, b]) => (a.priority ?? 99) - (b.priority ?? 99));
+
+    const lines = [];
+    for (const [, { title, priority, tasks }] of featureGroups) {
+      const pri = priority !== null ? `P${priority}` : 'P?';
+      lines.push(`Feature: "${title}" [${pri}]`);
+      tasks.sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+      for (const t of tasks) {
+        const tPri   = t.priority !== null ? `P${t.priority}` : 'P2';
+        const active = t.status === 'in_progress' ? ' (active)' : '';
+        lines.push(`  └─ [beads:${t.issue_id}] "${t.title}" ${tPri}${active}`);
+      }
+    }
+    if (standalone.length > 0) {
+      lines.push('Standalone tasks:');
+      standalone.sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+      for (const b of standalone) {
+        const pri    = b.priority !== null ? `P${b.priority}` : 'P2';
+        const active = b.status === 'in_progress' ? ' (active)' : '';
+        lines.push(`  └─ [beads:${b.issue_id}] "${b.title}" ${pri}${active}`);
+      }
+    }
+    beadsLines = lines.join('\n');
+  } else {
+    beadsLines = beadsReady.map(b => {
+      const pri   = b.priority !== null ? `P${b.priority}` : 'P2';
+      const parts = [`- [beads:${b.issue_id}] "${b.title}" priority:${pri}`];
+      if (b.status === 'in_progress') parts.push('(active)');
+      if (b.issue_type && b.issue_type !== 'task') parts.push(`type:${b.issue_type}`);
+      return parts.join(' ');
+    }).join('\n');
+  }
 
   const calendarLines = calendarRows.map(row => {
     const raw = Array.isArray(row.events) ? row.events : [];
@@ -187,7 +237,7 @@ Current date/time: ${dateStr} at ${timeStr} (${userTz})
 OPEN TASKS:
 ${taskLines || '  (none)'}
 
-READY BEADS ISSUES (software project tasks, no blockers):
+READY BEADS ISSUES (software project tasks, no blockers${hasHierarchyData ? ', grouped by feature' : ''}):
 ${beadsLines || '  (none)'}
 
 UPCOMING CALENDAR (next 7 days, times in ${userTz}):
@@ -197,7 +247,8 @@ Rules:
 - Overdue tasks must always appear if any exist
 - If Beads issues are present, include at least one unless all are P3/P4 (low/backlog)
 - Calendar context matters: prefer short tasks when the day is packed, longer ones during free blocks
-- Reason must be specific and ≤8 words (e.g. "overdue — 3 days late", "due tomorrow", "quick 15-min win", "open focus block this afternoon")
+- When multiple Beads tasks belong to the same Feature, prefer the one that brings the Feature closest to completion
+- Reason must be specific and ≤8 words (e.g. "overdue — 3 days late", "due tomorrow", "quick 15-min win", "open focus block this afternoon", "last task before Feature closes")
 
 Respond with ONLY valid JSON — no markdown, no explanation:
 {

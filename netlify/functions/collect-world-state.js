@@ -68,6 +68,42 @@ export default async () => {
     console.warn('[collect-world-state] Railway sync unreachable (proceeding with stale data):', e.message);
   }
 
+  // ── Step 1b: Fetch all open issues to build feature→task reverse map ────────
+  // bd list --json includes full dependencies[].depends_on_id for each issue.
+  // We filter to features, then invert: taskId → { featureId, title, priority }.
+  // Non-fatal: if this call fails, parent_feature_* columns are stored as null.
+  let taskToFeature = {};
+  try {
+    const listRes = await fetch(`${BEADS_SERVICE_URL}/api/beads/list?status=open`, {
+      headers: beadsHeaders,
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (listRes.ok) {
+      const allOpen = await listRes.json();
+      for (const issue of allOpen) {
+        if (issue.issue_type !== 'feature') continue;
+        for (const dep of (issue.dependencies || [])) {
+          const tid = dep.depends_on_id;
+          const existing = taskToFeature[tid];
+          // If a task has multiple parent features, pick the one with the lowest
+          // priority number (highest urgency) — mirrors dashboard.py primaryDisplayParent.
+          if (!existing || issue.priority < existing.parent_priority) {
+            taskToFeature[tid] = {
+              parent_feature_id:    issue.id,
+              parent_feature_title: issue.title,
+              parent_priority:      typeof issue.priority === 'number' ? issue.priority : null,
+            };
+          }
+        }
+      }
+      console.log(`[collect-world-state] Built feature map from ${allOpen.length} open issues`);
+    } else {
+      console.warn(`[collect-world-state] Feature list returned HTTP ${listRes.status} — parent feature fields will be null`);
+    }
+  } catch (e) {
+    console.warn('[collect-world-state] Feature list fetch failed (parent feature fields will be null):', e.message);
+  }
+
   try {
     const res = await fetch(`${BEADS_SERVICE_URL}/api/beads/ready`, {
       headers: beadsHeaders,
@@ -104,6 +140,7 @@ export default async () => {
         status:     issue.status     || null,
         issue_type: issue.issue_type || null,
         synced_at:  now.toISOString(),
+        ...(taskToFeature[issue.id] || { parent_feature_id: null, parent_feature_title: null, parent_priority: null }),
       }));
 
       const { error: insErr } = await supabase.from('beads_ready').insert(rows);
