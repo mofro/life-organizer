@@ -817,7 +817,12 @@ function UnifiedTaskList({
             <span className="text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full px-1.5 py-0.5 font-medium">{countAll}</span>
           )}
         </div>
-        <span className={`text-gray-400 dark:text-gray-500 text-xs transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>▾</span>
+        <div className="flex items-center gap-2">
+          {syncLabel && (
+            <span className={`text-xs ${beadsStale ? 'text-amber-500' : 'text-gray-300 dark:text-gray-600'}`}>{syncLabel}</span>
+          )}
+          <span className={`text-gray-400 dark:text-gray-500 text-xs transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>▾</span>
+        </div>
       </button>
 
       {open && <>
@@ -842,9 +847,6 @@ function UnifiedTaskList({
             </button>
           ))}
           <div className="ml-auto flex items-center gap-2">
-            {syncLabel && (
-              <span className={`text-xs ${beadsStale ? 'text-amber-500' : 'text-gray-300 dark:text-gray-600'}`}>{syncLabel}</span>
-            )}
             {onRefresh && (
               <button onClick={onRefresh} className="text-xs text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400" title="Refresh">↺</button>
             )}
@@ -870,7 +872,7 @@ function UnifiedTaskList({
         )}
 
         {tab === 'beads' ? (() => {
-          const { groups, standalone } = groupByFeature(beadsReady);
+          const { groups, standalone } = groupByFeature(filtered.filter(t => t.source === 'beads'));
           if (groups.length === 0 && standalone.length === 0) {
             return <p className="text-sm text-gray-400 text-center py-6">{EMPTY.hierarchy}</p>;
           }
