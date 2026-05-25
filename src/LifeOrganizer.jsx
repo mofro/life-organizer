@@ -750,6 +750,11 @@ function UnifiedTaskList({
 }) {
   const [tab, setTab]   = useState('beads'); // 'manual' | 'beads' | 'all'
   const [open, setOpen] = useState(false);
+
+  // Auto-open when a QuickStats filter is applied
+  useEffect(() => {
+    if (filter !== 'active' && filter !== 'all') setOpen(true);
+  }, [filter]);
   const now = new Date();
   const all = [...tasks, ...beadsReady];
 
@@ -801,44 +806,52 @@ function UnifiedTaskList({
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
-      {/* Tab bar */}
-      <div className="flex items-center gap-1 px-3 pt-3 pb-2 border-b border-gray-100 dark:border-gray-800">
-        {TABS.map(({ key, label, count }) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors
-              ${tab === key
-                ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-                : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
-          >
-            {label}
-            {count > 0 && (
-              <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none
-                ${tab === key ? 'bg-blue-200 dark:bg-blue-800 text-blue-700 dark:text-blue-200' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}`}>
-                {count}
-              </span>
-            )}
-          </button>
-        ))}
-        <div className="ml-auto flex items-center gap-2">
-          {syncLabel && (
-            <span className={`text-xs ${beadsStale ? 'text-amber-500' : 'text-gray-300 dark:text-gray-600'}`}>{syncLabel}</span>
+      {/* Header — title + collapse toggle */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Tasks</span>
+          {countAll > 0 && (
+            <span className="text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full px-1.5 py-0.5 font-medium">{countAll}</span>
           )}
-          {onRefresh && (
-            <button onClick={onRefresh} className="text-xs text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400" title="Refresh">↺</button>
-          )}
-          <button
-            onClick={() => setOpen(o => !o)}
-            className="text-xs text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 transition-transform duration-150"
-            title={open ? 'Collapse' : 'Expand'}
-          >
-            <span className={`inline-block transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>▾</span>
-          </button>
         </div>
-      </div>
+        <span className={`text-gray-400 dark:text-gray-500 text-xs transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>▾</span>
+      </button>
 
-      {open && <div className="p-4">
+      {open && <>
+        {/* Tab bar */}
+        <div className="flex items-center gap-1 px-3 pb-2 border-t border-b border-gray-100 dark:border-gray-800">
+          {TABS.map(({ key, label, count }) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors
+                ${tab === key
+                  ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+                  : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+            >
+              {label}
+              {count > 0 && (
+                <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none
+                  ${tab === key ? 'bg-blue-200 dark:bg-blue-800 text-blue-700 dark:text-blue-200' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}`}>
+                  {count}
+                </span>
+              )}
+            </button>
+          ))}
+          <div className="ml-auto flex items-center gap-2">
+            {syncLabel && (
+              <span className={`text-xs ${beadsStale ? 'text-amber-500' : 'text-gray-300 dark:text-gray-600'}`}>{syncLabel}</span>
+            )}
+            {onRefresh && (
+              <button onClick={onRefresh} className="text-xs text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400" title="Refresh">↺</button>
+            )}
+          </div>
+        </div>
+
+        <div className="p-4">
         {/* Active filter chip */}
         {filter !== 'active' && filter !== 'all' && (
           <div className="flex items-center gap-2 mb-3">
@@ -898,7 +911,8 @@ function UnifiedTaskList({
               : <TaskRow key={task.id} task={task} onStatusChange={onStatusChange} onDelete={onDelete} onSchedule={onSchedule} />
           )
         )}
-      </div>}
+        </div>
+      </>}
     </div>
   );
 }
