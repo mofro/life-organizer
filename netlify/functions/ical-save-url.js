@@ -9,8 +9,9 @@
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_USER_ID
 
 import { createClient } from '@supabase/supabase-js';
+import { extractUserId } from '../lib/auth.js';
 
-const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_USER_ID } = process.env;
+const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -21,6 +22,10 @@ function json(data, status = 200) {
 
 export default async (req) => {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+
+  let userId;
+  try { userId = await extractUserId(req); }
+  catch { return json({ error: 'Unauthorized' }, 401); }
 
   let body;
   try {
@@ -45,7 +50,7 @@ export default async (req) => {
   const { error } = await supabase
     .from('user_preferences')
     .upsert(
-      { user_id: SUPABASE_USER_ID, apple_ical_url: normalized || null },
+      { user_id: userId, apple_ical_url: normalized || null },
       { onConflict: 'user_id' },
     );
 

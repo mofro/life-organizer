@@ -9,10 +9,20 @@
 // Returns: the raw issue object from Railway (title, description, notes, etc.)
 // Errors:  { error: "..." } with appropriate HTTP status
 
+import { extractUserId } from '../lib/auth.js';
+
 const BEADS_SERVICE_URL = process.env.BEADS_SERVICE_URL;
 const BEADS_API_KEY     = process.env.BEADS_API_KEY;
 
 export default async (req) => {
+  try { await extractUserId(req); }
+  catch {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   const url = new URL(req.url);
   const id  = url.searchParams.get('id');
 

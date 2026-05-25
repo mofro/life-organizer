@@ -28,11 +28,11 @@
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_USER_ID
 
 import { createClient } from '@supabase/supabase-js';
+import { extractUserId } from '../lib/auth.js';
 
 const {
   SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY,
-  SUPABASE_USER_ID,
 } = process.env;
 
 // ─── Priority helpers ────────────────────────────────────────────────────────
@@ -67,9 +67,9 @@ function fromDbRow(row) {
  * (i.e., before the migration has been applied). The DB column default 'general'
  * covers that case. Once the migration runs, category will be persisted correctly.
  */
-function toDbInsert(task, { hasCategory, hasCalendarEventUrl }) {
+function toDbInsert(task, userId, { hasCategory, hasCalendarEventUrl }) {
   const row = {
-    user_id:               SUPABASE_USER_ID,
+    user_id:               userId,
     title:                 task.title,
     status:                task.status                    || 'pending',
     priority:              PRIORITY_TO_INT[task.priority] ?? 2,
@@ -111,11 +111,11 @@ function json(data, status = 200) {
 // ─── Column probes ────────────────────────────────────────────────────────────
 // Check once per invocation whether optional columns exist (graceful until migrations run).
 
-async function probeColumn(supabase, column) {
+async function probeColumn(supabase, column, userId) {
   const { error } = await supabase
     .from('open_tasks')
     .select(column)
-    .eq('user_id', SUPABASE_USER_ID)
+    .eq('user_id', userId)
     .limit(1);
   return !error || error.code !== '42703';
 }
@@ -130,12 +130,16 @@ export default async (req) => {
     return json({ error: 'Method not allowed' }, 405);
   }
 
+  let userId;
+  try { userId = await extractUserId(req); }
+  catch { return json({ error: 'Unauthorized' }, 401); }
+
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
   // Probe for optional columns added by later migrations
   const [hasCategory, hasCalendarEventUrl] = await Promise.all([
-    probeColumn(supabase, 'category'),
-    probeColumn(supabase, 'calendar_event_url'),
+    probeColumn(supabase, 'category', userId),
+    probeColumn(supabase, 'calendar_event_url', userId),
   ]);
 
   // ── GET — list all tasks ─────────────────────────────────────────────────────
@@ -147,7 +151,7 @@ export default async (req) => {
     const { data, error } = await supabase
       .from('open_tasks')
       .select(select)
-      .eq('user_id', SUPABASE_USER_ID)
+      .eq('user_id', userId)
       .order('deadline',    { ascending: true,  nullsFirst: false })
       .order('created_at',  { ascending: false });
 
@@ -169,7 +173,7 @@ export default async (req) => {
 
     const { data, error } = await supabase
       .from('open_tasks')
-      .insert(toDbInsert(body, { hasCategory, hasCalendarEventUrl }))
+      .insert(toDbInsert(body, userId, { hasCategory, hasCalendarEventUrl }))
       .select()
       .single();
 
@@ -199,7 +203,7 @@ export default async (req) => {
       .from('open_tasks')
       .update(patch)
       .eq('id', id)
-      .eq('user_id', SUPABASE_USER_ID)
+      .eq('user_id', userId)
       .select()
       .single();
 
@@ -220,7 +224,7 @@ export default async (req) => {
       .from('open_tasks')
       .delete()
       .eq('id', id)
-      .eq('user_id', SUPABASE_USER_ID);
+      .eq('user_id', userId);
 
     if (error) {
       console.error('[tasks] DELETE failed:', error.message);

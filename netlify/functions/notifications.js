@@ -12,9 +12,10 @@
 //   Response: { notifications: [...] }
 //
 // Env vars required:
-//   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_USER_ID
+//   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, userId
 
 import { createClient } from '@supabase/supabase-js';
+import { extractUserId } from '../lib/auth.js';
 
 const VALID_ACTIONS = ['dismissed', 'accepted', 'ignored'];
 
@@ -26,10 +27,14 @@ function json(data, status = 200) {
 }
 
 export default async (req) => {
-  const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_USER_ID } = process.env;
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !SUPABASE_USER_ID) {
+  const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     return json({ error: 'Missing server configuration' }, 500);
   }
+
+  let userId;
+  try { userId = await extractUserId(req); }
+  catch { return json({ error: 'Unauthorized' }, 401); }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   const url      = new URL(req.url);
@@ -52,7 +57,7 @@ export default async (req) => {
       .from('notification_log')
       .update({ user_action: action, action_at: new Date().toISOString() })
       .eq('id', id)
-      .eq('user_id', SUPABASE_USER_ID)
+      .eq('user_id', userId)
       .select('id')
       .single();
 
@@ -68,7 +73,7 @@ export default async (req) => {
     let query = supabase
       .from('notification_log')
       .select('id,rule_id,channel,title,body,payload,fired_at')
-      .eq('user_id', SUPABASE_USER_ID)
+      .eq('user_id', userId)
       .is('user_action', null)
       .order('fired_at', { ascending: false })
       .limit(50);

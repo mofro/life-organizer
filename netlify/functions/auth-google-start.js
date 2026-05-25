@@ -11,10 +11,19 @@
 //   GOOGLE_CLIENT_ID
 
 import { randomBytes } from 'crypto';
+import { extractUserId } from '../lib/auth.js';
 
 const { GOOGLE_CLIENT_ID } = process.env;
 
 export default async (req) => {
+  try { await extractUserId(req); }
+  catch {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   if (!GOOGLE_CLIENT_ID) {
     return new Response(JSON.stringify({ error: 'Google OAuth not configured' }), {
       status: 503,

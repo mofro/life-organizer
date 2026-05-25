@@ -16,13 +16,13 @@
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_USER_ID
 
 import { createClient } from '@supabase/supabase-js';
+import { extractUserId } from '../lib/auth.js';
 
 const {
   GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET,
   SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY,
-  SUPABASE_USER_ID,
 } = process.env;
 
 function json(data, status = 200) {
@@ -41,11 +41,11 @@ function nextFullHour() {
 }
 
 /** Returns true if the calendar_event_url column exists on open_tasks. */
-async function probeCalendarEventUrl(supabase) {
+async function probeCalendarEventUrl(supabase, userId) {
   const { error } = await supabase
     .from('open_tasks')
     .select('calendar_event_url')
-    .eq('user_id', SUPABASE_USER_ID)
+    .eq('user_id', userId)
     .limit(1);
   return !error || error.code !== '42703';
 }
@@ -54,6 +54,10 @@ export default async (req) => {
   if (req.method !== 'POST') {
     return json({ error: 'Method not allowed' }, 405);
   }
+
+  let userId;
+  try { userId = await extractUserId(req); }
+  catch { return json({ error: 'Unauthorized' }, 401); }
 
   let body;
   try { body = await req.json(); }
@@ -69,7 +73,7 @@ export default async (req) => {
     .from('open_tasks')
     .select('title, time_required_minutes')
     .eq('id', taskId)
-    .eq('user_id', SUPABASE_USER_ID)
+    .eq('user_id', userId)
     .single();
 
   if (taskErr || !task) {
@@ -80,7 +84,7 @@ export default async (req) => {
   const { data: prefs, error: prefsErr } = await supabase
     .from('user_preferences')
     .select('google_refresh_token')
-    .eq('user_id', SUPABASE_USER_ID)
+    .eq('user_id', userId)
     .single();
 
   if (prefsErr || !prefs?.google_refresh_token) {
@@ -140,13 +144,13 @@ export default async (req) => {
   console.log(`[schedule-task] Created event "${task.title}" → ${event.htmlLink}`);
 
   // ── 6. Persist event URL back to the task (if column exists) ─────────────────
-  const hasColumn = await probeCalendarEventUrl(supabase);
+  const hasColumn = await probeCalendarEventUrl(supabase, userId);
   if (hasColumn) {
     const { error: updateErr } = await supabase
       .from('open_tasks')
       .update({ calendar_event_url: event.htmlLink })
       .eq('id', taskId)
-      .eq('user_id', SUPABASE_USER_ID);
+      .eq('user_id', userId);
 
     if (updateErr) {
       console.error('[schedule-task] Failed to persist event URL:', updateErr.message);

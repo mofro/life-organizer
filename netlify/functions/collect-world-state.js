@@ -16,16 +16,16 @@
 //   BEADS_API_KEY           Shared secret for Railway auth
 //   SUPABASE_URL            Supabase project URL
 //   SUPABASE_SERVICE_ROLE_KEY  Service role key (server-side only — never expose to client)
-//   SUPABASE_USER_ID        UUID of the single user (single-user system, v1)
+//   userId        UUID of the single user (single-user system, v1)
 
 import { createClient } from '@supabase/supabase-js';
+import { extractUserId } from '../lib/auth.js';
 
 const {
   BEADS_SERVICE_URL,
   BEADS_API_KEY,
   SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY,
-  SUPABASE_USER_ID,
 } = process.env;
 
 function json(data, status = 200) {
@@ -35,14 +35,18 @@ function json(data, status = 200) {
   });
 }
 
-export default async () => {
+export default async (req) => {
   // Validate environment
-  const missing = ['BEADS_SERVICE_URL', 'BEADS_API_KEY', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_USER_ID']
+  const missing = ['BEADS_SERVICE_URL', 'BEADS_API_KEY', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']
     .filter(k => !process.env[k]);
   if (missing.length) {
     console.error('[collect-world-state] Missing env vars:', missing.join(', '));
     return json({ error: `Missing configuration: ${missing.join(', ')}` }, 500);
   }
+
+  let userId;
+  try { userId = await extractUserId(req); }
+  catch { return json({ error: 'Unauthorized' }, 401); }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   const now = new Date();
@@ -126,13 +130,13 @@ export default async () => {
     const { error: delErr } = await supabase
       .from('beads_ready')
       .delete()
-      .eq('user_id', SUPABASE_USER_ID);
+      .eq('user_id', userId);
 
     if (delErr) {
       console.error('[collect-world-state] beads_ready delete failed:', delErr.message);
     } else if (freshIssues.length > 0) {
       const rows = freshIssues.map(issue => ({
-        user_id:    SUPABASE_USER_ID,
+        user_id:    userId,
         issue_id:   issue.id,
         title:      issue.title,
         priority:   typeof issue.priority === 'number' ? issue.priority : null,
@@ -152,7 +156,7 @@ export default async () => {
   const { data: beadsRows, error: beadsReadErr } = await supabase
     .from('beads_ready')
     .select('*')
-    .eq('user_id', SUPABASE_USER_ID)
+    .eq('user_id', userId)
     .order('priority', { ascending: true });
 
   if (beadsReadErr) console.error('[collect-world-state] beads_ready read failed:', beadsReadErr.message);
@@ -161,7 +165,7 @@ export default async () => {
   const { data: taskRows, error: taskErr } = await supabase
     .from('open_tasks')
     .select('*')
-    .eq('user_id', SUPABASE_USER_ID)
+    .eq('user_id', userId)
     .not('status', 'in', '(completed,cancelled)')
     .order('deadline', { ascending: true, nullsFirst: false });
 

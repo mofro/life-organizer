@@ -13,13 +13,13 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { syncGoogle }   from '../lib/calendarSyncLogic.js';
+import { extractUserId } from '../lib/auth.js';
 
 const {
   GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET,
   SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY,
-  SUPABASE_USER_ID,
 } = process.env;
 
 function json(data, status = 200) {
@@ -32,9 +32,13 @@ function json(data, status = 200) {
 export default async (req) => {
   if (req.method !== 'GET') return json({ error: 'Method not allowed' }, 405);
 
+  let userId;
+  try { userId = await extractUserId(req); }
+  catch { return json({ error: 'Unauthorized' }, 401); }
+
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-  const result = await syncGoogle(supabase, SUPABASE_USER_ID, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
+  const result = await syncGoogle(supabase, userId, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
 
   if (!result.connected) return json({ connected: false, events: [] });
   if (result.error)      return json({ connected: true, error: result.error, events: [] });
