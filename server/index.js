@@ -146,6 +146,33 @@ app.post('/api/beads/close/:id', (req, res) => {
   }
 });
 
+// POST /api/beads/create — create a new issue
+// Body: { title (required), description, type, priority, labels }
+// Uses execSync + JSON.parse directly — bd create --json returns {} not [].
+app.post('/api/beads/create', (req, res) => {
+  const { title, description, type, priority, labels } = req.body ?? {};
+  if (!title?.trim()) return res.status(400).json({ error: 'title is required' });
+
+  const esc = (s) => String(s).replace(/'/g, "'\\''");
+
+  let cmd = `bd create --title='${esc(title)}'`;
+  if (description) cmd += ` --description='${esc(description)}'`;
+  if (type)        cmd += ` --type='${esc(type)}'`;
+  if (priority != null) cmd += ` --priority=${parseInt(priority, 10)}`;
+  if (labels) {
+    const labelStr = Array.isArray(labels) ? labels.join(',') : String(labels);
+    cmd += ` --labels='${esc(labelStr)}'`;
+  }
+  cmd += ' --json';
+
+  try {
+    const raw = execSync(cmd, { cwd: BDG_DIR, encoding: 'utf8', shell: '/bin/bash' });
+    res.status(201).json(JSON.parse(raw));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // GET /api/beads/stats
 app.get('/api/beads/stats', (_req, res) => {
   try {
