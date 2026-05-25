@@ -749,7 +749,7 @@ function UnifiedTaskList({
   worldError, worldLoading, beadsStale, syncedAt, onRefresh,
 }) {
   const [tab, setTab]   = useState('beads'); // 'manual' | 'beads' | 'all'
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const now = new Date();
   const all = [...tasks, ...beadsReady];
 
@@ -1148,12 +1148,27 @@ export default function LifeOrganizer() {
         {/* Stats — clickable filters across all sources */}
         <QuickStats tasks={[...tasks, ...beadsReady]} filter={filter} onFilterChange={setFilter} />
 
+        {/* Two-column: Add Task + Calendar */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Section title="Add Task" defaultOpen={true}>
+            <TaskForm onAdd={addTask} />
+          </Section>
+          <Section title="Calendar" defaultOpen={true}>
+            <CalendarContent
+              events={calendarEvents}
+              googleConnected={googleCalConnected}
+              icalConnected={icalConnected}
+              loading={googleCalConnected === null}
+            />
+          </Section>
+        </div>
+
         {/* Recommendations — Claude-powered, on-demand */}
         <Section
           title="Ask Claude"
           subtitle={claudeRecs.length > 0 ? 'AI recommendations' : 'on-demand recommendations'}
           badge={claudeRecs.length > 0 ? claudeRecs.length : undefined}
-          defaultOpen={claudeRecs.length > 0 || recoLoading || !!recoError}
+          defaultOpen={false}
         >
           {/* Results */}
           {claudeRecs.length > 0 && (
@@ -1207,7 +1222,7 @@ export default function LifeOrganizer() {
 
         {/* Rules Engine notifications */}
         {(notifications.length > 0 || rulesError) && (
-          <Section title="Alerts" badge={notifications.length} defaultOpen={true}>
+          <Section title="Alerts" badge={notifications.length} defaultOpen={false}>
             {rulesError && (
               <p className="text-xs text-red-400 mb-2">Rules engine error: {rulesError}</p>
             )}
@@ -1249,21 +1264,6 @@ export default function LifeOrganizer() {
           syncedAt={syncedAt}
           onRefresh={handleRefresh}
         />
-
-        {/* Two-column: Add Task + Calendar */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Section title="Add Task" defaultOpen={true}>
-            <TaskForm onAdd={addTask} />
-          </Section>
-          <Section title="Calendar" defaultOpen={true}>
-            <CalendarContent
-              events={calendarEvents}
-              googleConnected={googleCalConnected}
-              icalConnected={icalConnected}
-              loading={googleCalConnected === null}
-            />
-          </Section>
-        </div>
 
         {/* Settings — integrations */}
         <Section title="Settings" defaultOpen={false}>
