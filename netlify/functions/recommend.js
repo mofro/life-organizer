@@ -245,13 +245,14 @@ export default async () => {
     if (age < CACHE_TTL_MS && cachedHash === currentHash) {
       console.log('[recommend] Cache hit — returning cached portfolio');
       return json({
-        focus:   cached.content?.focus   ?? null,
-        queue:   cached.content?.queue   ?? [],
-        overdue: cached.content?.overdue ?? [],
-        summary: cached.content?.summary ?? null,
-        cached:   true,
-        cachedAt: cached.created_at,
-        model:    cached.model,
+        focus:     cached.content?.focus   ?? null,
+        queue:     cached.content?.queue   ?? [],
+        overdue:   cached.content?.overdue ?? [],
+        summary:   cached.content?.summary ?? null,
+        historyId: cached.id,
+        cached:    true,
+        cachedAt:  cached.created_at,
+        model:     cached.model,
       });
     }
   }
@@ -414,7 +415,7 @@ Respond with ONLY valid JSON — no markdown, no explanation:
     generatedAt: now.toISOString(),
   };
 
-  const { error: insertErr } = await supabase
+  const { data: insertedRow, error: insertErr } = await supabase
     .from('recommendation_history')
     .insert({
       user_id:              userId,
@@ -423,7 +424,9 @@ Respond with ONLY valid JSON — no markdown, no explanation:
       model:                MODEL,
       prompt_tokens:        promptTokens,
       completion_tokens:    completionTokens,
-    });
+    })
+    .select('id')
+    .single();
 
   if (insertErr) {
     console.error('[recommend] Failed to write recommendation_history:', insertErr.message);
@@ -433,10 +436,11 @@ Respond with ONLY valid JSON — no markdown, no explanation:
     focus,
     queue,
     overdue,
-    summary:  parsed.summary || null,
-    cached:   false,
-    cachedAt: null,
-    model:    MODEL,
-    tokens:   { prompt: promptTokens, completion: completionTokens },
+    summary:   parsed.summary || null,
+    historyId: insertedRow?.id ?? null,
+    cached:    false,
+    cachedAt:  null,
+    model:     MODEL,
+    tokens:    { prompt: promptTokens, completion: completionTokens },
   });
 };

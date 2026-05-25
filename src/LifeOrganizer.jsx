@@ -116,16 +116,21 @@ function useICalUrl() {
 }
 
 // ─── Claude recommendations hook ─────────────────────────────────────────────
-// Calls /.netlify/functions/recommend to get AI-ranked task recommendations.
+// Calls /.netlify/functions/recommend to get portfolio-shaped recommendations.
 // Results are cached server-side for 30 min when the world state hasn't changed.
+// Backward compat: if the server returns the old flat data.recommendations shape,
+// maps it to queue=recommendations, focus=null, overdue=[].
 function useClaudeRecommendations() {
-  const [recommendations, setRecommendations] = useState([]);
-  const [loading, setLoading]                 = useState(false);
-  const [error, setError]                     = useState(null);
-  const [summary, setSummary]                 = useState(null);
-  const [cached, setCached]                   = useState(false);
-  const [cachedAt, setCachedAt]               = useState(null);
-  const [emptyState, setEmptyState]           = useState(false);
+  const [focus, setFocus]         = useState(null);
+  const [queue, setQueue]         = useState([]);
+  const [overdue, setOverdue]     = useState([]);
+  const [historyId, setHistoryId] = useState(null);
+  const [loading, setLoading]     = useState(false);
+  const [error, setError]         = useState(null);
+  const [summary, setSummary]     = useState(null);
+  const [cached, setCached]       = useState(false);
+  const [cachedAt, setCachedAt]   = useState(null);
+  const [emptyState, setEmptyState] = useState(false);
 
   const ask = useCallback(async () => {
     setLoading(true);
@@ -135,7 +140,18 @@ function useClaudeRecommendations() {
       const res  = await fetch('/.netlify/functions/recommend', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      setRecommendations(data.recommendations || []);
+      // Backward compat: old shape had a flat data.recommendations array
+      if (Array.isArray(data.recommendations)) {
+        setFocus(null);
+        setQueue(data.recommendations);
+        setOverdue([]);
+        setHistoryId(null);
+      } else {
+        setFocus(data.focus     ?? null);
+        setQueue(data.queue     ?? []);
+        setOverdue(data.overdue ?? []);
+        setHistoryId(data.historyId ?? null);
+      }
       setSummary(data.summary   || null);
       setCached(data.cached     || false);
       setCachedAt(data.cachedAt || null);
@@ -147,7 +163,7 @@ function useClaudeRecommendations() {
     }
   }, []);
 
-  return { recommendations, loading, error, summary, cached, cachedAt, emptyState, ask };
+  return { focus, queue, overdue, historyId, loading, error, summary, cached, cachedAt, emptyState, ask };
 }
 
 // ─── Task persistence hook ────────────────────────────────────────────────────
@@ -419,6 +435,104 @@ function RecommendationCard({ task, onComplete }) {
           Done
         </button>
       )}
+    </div>
+  );
+}
+
+// ─── Portfolio recommendation components ─────────────────────────────────────
+
+function FocusCard({ item, historyId }) {
+  const [dismissed, setDismissed] = useState(false);
+
+  const thumbs = useCallback((action) => {
+    if (action === 'dismissed') setDismissed(true);
+    if (!historyId || !item) return;
+    const ref = item.source === 'beads' ? `beads:${item.beadsId}` : `task:${item.id}`;
+    fetch('/.netlify/functions/recommendations', {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ historyId, ref, action }),
+    }).catch(() => {});
+  }, [item, historyId]);
+
+  if (!item || dismissed) {
+    return (
+      <p className="text-xs text-gray-400 dark:text-gray-500 py-2 text-center">
+        Nothing fits your next block — mark a window as free or add a task.
+      </p>
+    );
+  }
+
+  return (
+    <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium text-indigo-500 dark:text-indigo-400 uppercase tracking-wide mb-0.5">Focus Now</p>
+          <p className="font-semibold text-gray-900 dark:text-gray-100 text-sm">{item.title}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{item.reason}</p>
+          <div className="flex gap-2 mt-2 flex-wrap items-center">
+            {item.window && (
+              <span className="text-xs bg-white dark:bg-gray-800 border border-indigo-200 dark:border-indigo-700 text-indigo-600 dark:text-indigo-300 rounded px-1.5 py-0.5">{item.window}</span>
+            )}
+            {item.timeRequired && (
+              <span className="text-xs text-gray-400 dark:text-gray-500">{item.timeRequired >= 60 ? `${Math.round(item.timeRequired / 60)}h` : `${item.timeRequired}m`}</span>
+            )}
+            <SourceBadge source={item.source} sourceUrl={item.sourceUrl} />
+          </div>
+          {item.source === 'beads' && (
+            <div className="mt-2 flex gap-2">
+              <CopyCommand cmd={`bdg claim ${item.beadsId}`} />
+            </div>
+          )}
+        </div>
+        <div className="flex flex-col gap-1 shrink-0">
+          <button onClick={() => thumbs('accepted')} title="Good suggestion"
+            className="text-gray-300 dark:text-gray-600 hover:text-green-500 dark:hover:text-green-400 text-sm transition-colors leading-none">👍</button>
+          <button onClick={() => thumbs('dismissed')} title="Not now"
+            className="text-gray-300 dark:text-gray-600 hover:text-red-400 dark:hover:text-red-500 text-sm transition-colors leading-none">👎</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QueueCard({ item, historyId }) {
+  const [dismissed, setDismissed] = useState(false);
+
+  const thumbs = useCallback((action) => {
+    if (action === 'dismissed') setDismissed(true);
+    if (!historyId) return;
+    const ref = item.source === 'beads' ? `beads:${item.beadsId}` : `task:${item.id}`;
+    fetch('/.netlify/functions/recommendations', {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ historyId, ref, action }),
+    }).catch(() => {});
+  }, [item, historyId]);
+
+  if (dismissed) return null;
+
+  return (
+    <div className="border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2.5 flex items-start gap-3">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-gray-800 dark:text-gray-200 truncate">{item.title}</p>
+        <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{item.reason}</p>
+        <div className="flex gap-2 mt-1.5 flex-wrap items-center">
+          {item.window && (
+            <span className="text-xs text-gray-400 dark:text-gray-500">{item.window}</span>
+          )}
+          <SourceBadge source={item.source} sourceUrl={item.sourceUrl} />
+          {item.source === 'beads' && (
+            <CopyCommand cmd={`bdg close ${item.beadsId}`} />
+          )}
+        </div>
+      </div>
+      <div className="flex gap-1 shrink-0 mt-0.5">
+        <button onClick={() => thumbs('accepted')} title="Good suggestion"
+          className="text-gray-200 dark:text-gray-700 hover:text-green-500 dark:hover:text-green-400 text-xs transition-colors leading-none">👍</button>
+        <button onClick={() => thumbs('dismissed')} title="Skip this"
+          className="text-gray-200 dark:text-gray-700 hover:text-red-400 dark:hover:text-red-500 text-xs transition-colors leading-none">👎</button>
+      </div>
     </div>
   );
 }
@@ -1133,8 +1247,25 @@ export default function LifeOrganizer() {
   const calendarEvents    = [...googleEvents, ...icalEvents].sort((a, b) => a.start.localeCompare(b.start));
   const calendarConnected = googleCalConnected || icalConnected;
   const syncCalendar      = useCallback(() => { syncGoogleCal(); syncICal(); }, [syncGoogleCal, syncICal]);
-  // Claude recommendations — on-demand, replaces local scoring algorithm.
-  const { recommendations: claudeRecs, loading: recoLoading, error: recoError, summary: recoSummary, cached: recoCached, cachedAt: recoCachedAt, emptyState: recoEmpty, ask: askClaude } = useClaudeRecommendations();
+  // Claude recommendations — on-demand portfolio: focus / queue / overdue.
+  const { focus: claudeFocus, queue: claudeQueue, overdue: claudeOverdue, historyId: recoHistoryId, loading: recoLoading, error: recoError, summary: recoSummary, cached: recoCached, cachedAt: recoCachedAt, emptyState: recoEmpty, ask: askClaude } = useClaudeRecommendations();
+
+  // Overdue items from Claude routed to the Alerts panel — dismissed locally only.
+  const [dismissedOverdueKeys, setDismissedOverdueKeys] = useState(new Set());
+  useEffect(() => { setDismissedOverdueKeys(new Set()); }, [recoHistoryId]);
+
+  const overdueAlerts = (claudeOverdue ?? [])
+    .filter(item => !dismissedOverdueKeys.has(item.beadsId ?? String(item.id)))
+    .map(item => ({
+      title:  `Overdue: ${item.title}`,
+      body:   item.reason || null,
+      source: 'overdue',
+      _key:   item.beadsId ?? String(item.id),
+    }));
+
+  const dismissOverdue = useCallback((key) => {
+    setDismissedOverdueKeys(prev => new Set([...prev, key]));
+  }, []);
 
   // Run rules engine after world state finishes loading
   const handleRefresh = useCallback(async () => {
@@ -1182,70 +1313,98 @@ export default function LifeOrganizer() {
           </Section>
         </div>
 
-        {/* Recommendations — Claude-powered, on-demand */}
-        <Section
-          title="Ask Claude"
-          subtitle={claudeRecs.length > 0 ? 'AI recommendations' : 'on-demand recommendations'}
-          badge={claudeRecs.length > 0 ? claudeRecs.length : undefined}
-          defaultOpen={false}
-        >
-          {/* Results */}
-          {claudeRecs.length > 0 && (
-            <div className="space-y-2 mb-3">
-              {claudeRecs.map(task => (
-                <RecommendationCard key={task.beadsId ?? task.id} task={task} onComplete={completeTask} />
-              ))}
-            </div>
-          )}
-
-          {/* Summary line from Claude */}
-          {recoSummary && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 italic mb-3">{recoSummary}</p>
-          )}
-
-          {/* Empty state */}
-          {recoEmpty && !recoLoading && (
-            <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">
-              No open tasks or unblocked Beads issues. Add a task or run <code className="font-mono">bd ready</code> to surface work.
-            </p>
-          )}
-
-          {/* Prompt text before first ask */}
-          {claudeRecs.length === 0 && !recoLoading && !recoError && !recoEmpty && (
-            <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">
-              Claude will rank your open tasks and ready Beads issues by deadline, urgency, and calendar context.
-            </p>
-          )}
-
-          {/* Error */}
-          {recoError && (
-            <p className="text-xs text-red-400 mb-2">{recoError}</p>
-          )}
-
-          {/* Controls */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={askClaude}
-              disabled={recoLoading}
-              className="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        {/* Recommendations — Claude-powered portfolio: Focus Now + Up Next */}
+        {(() => {
+          const hasReco = claudeFocus != null || (claudeQueue?.length ?? 0) > 0;
+          const recoCount = (claudeFocus ? 1 : 0) + (claudeQueue?.length ?? 0);
+          return (
+            <Section
+              title="Ask Claude"
+              subtitle={hasReco ? 'AI recommendations' : 'on-demand recommendations'}
+              badge={hasReco ? recoCount : undefined}
+              defaultOpen={false}
             >
-              {recoLoading ? 'Thinking…' : claudeRecs.length > 0 ? 'Refresh' : 'Ask Claude'}
-            </button>
-            {recoCached && recoCachedAt && (
-              <span className="text-xs text-gray-300 dark:text-gray-600">
-                cached · {new Date(recoCachedAt).toLocaleTimeString()}
-              </span>
-            )}
-          </div>
-        </Section>
+              {/* Focus card */}
+              {hasReco && (
+                <div className="mb-3">
+                  <FocusCard item={claudeFocus} historyId={recoHistoryId} />
+                </div>
+              )}
 
-        {/* Rules Engine notifications */}
-        {(notifications.length > 0 || rulesError) && (
-          <Section title="Alerts" badge={notifications.length} defaultOpen={false}>
+              {/* Up Next — queue */}
+              {(claudeQueue?.length ?? 0) > 0 && (
+                <div className="mb-3">
+                  <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-2">Up Next</p>
+                  <div className="space-y-2">
+                    {claudeQueue.map(item => (
+                      <QueueCard key={item.beadsId ?? item.id} item={item} historyId={recoHistoryId} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Summary line from Claude */}
+              {recoSummary && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 italic mb-3">{recoSummary}</p>
+              )}
+
+              {/* Empty state */}
+              {recoEmpty && !recoLoading && (
+                <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">
+                  No open tasks or unblocked Beads issues. Add a task or run <code className="font-mono">bd ready</code> to surface work.
+                </p>
+              )}
+
+              {/* Prompt text before first ask */}
+              {!hasReco && !recoLoading && !recoError && !recoEmpty && (
+                <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">
+                  Claude will rank your open tasks and ready Beads issues by deadline, urgency, and calendar context.
+                </p>
+              )}
+
+              {/* Error */}
+              {recoError && (
+                <p className="text-xs text-red-400 mb-2">{recoError}</p>
+              )}
+
+              {/* Controls */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={askClaude}
+                  disabled={recoLoading}
+                  className="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {recoLoading ? 'Thinking…' : hasReco ? 'Refresh' : 'Ask Claude'}
+                </button>
+                {recoCached && recoCachedAt && (
+                  <span className="text-xs text-gray-300 dark:text-gray-600">
+                    cached · {new Date(recoCachedAt).toLocaleTimeString()}
+                  </span>
+                )}
+              </div>
+            </Section>
+          );
+        })()}
+
+        {/* Rules Engine notifications + Claude overdue items */}
+        {(notifications.length > 0 || overdueAlerts.length > 0 || rulesError) && (
+          <Section title="Alerts" badge={notifications.length + overdueAlerts.length} defaultOpen={false}>
             {rulesError && (
               <p className="text-xs text-red-400 mb-2">Rules engine error: {rulesError}</p>
             )}
             <div className="space-y-1.5">
+              {overdueAlerts.map(item => (
+                <div key={`overdue-${item._key}`} className="flex items-start gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-red-900 dark:text-red-200">{item.title}</p>
+                    {item.body && <p className="text-xs text-red-700 dark:text-red-300 mt-0.5">{item.body}</p>}
+                  </div>
+                  <button
+                    onClick={() => dismissOverdue(item._key)}
+                    className="text-red-300 dark:text-red-700 hover:text-red-500 dark:hover:text-red-400 text-xs shrink-0 mt-0.5"
+                  >✕</button>
+                </div>
+              ))}
               {notifications.map((n, i) => (
                 <div key={i} className="flex items-start gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
                   <div className="flex-1 min-w-0">
