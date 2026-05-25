@@ -638,6 +638,310 @@ function ICalUrlForm({ currentUrl, saving, saveMsg, onSave, onSynced }) {
   );
 }
 
+// ─── Conversation Intake ──────────────────────────────────────────────────────
+
+function useIntake() {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+  const [result, setResult] = useState(null);
+
+  const submit = useCallback(async ({ text, source, context, project }) => {
+    setSubmitting(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await fetch('/.netlify/functions/intake', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, source, context, project: project || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+      setResult({ ...data, project: project || null });
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }, []);
+
+  const reset = useCallback(() => { setResult(null); setError(null); }, []);
+
+  return { submitting, error, result, submit, reset };
+}
+
+function IntakeItem({ item, state, onApprove, onDismiss }) {
+  const priorityLabel = { 0: 'P0', 1: 'P1', 2: 'P2', 3: 'P3', 4: 'P4' };
+  const destCls = item.destination === 'beads'
+    ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300'
+    : 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300';
+
+  return (
+    <div className="flex items-start gap-2 py-1.5">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-sm text-gray-800 dark:text-gray-200 font-medium">{item.title}</span>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${destCls}`}>
+            {item.destination === 'beads' ? 'beads' : 'task'}
+          </span>
+          {item.content?.priority != null && (
+            <span className="text-[10px] px-1 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-gray-500 dark:text-gray-400">
+              {priorityLabel[item.content.priority] ?? `P${item.content.priority}`}
+            </span>
+          )}
+          {item.thirdParty && item.content?.owner && (
+            <span className="text-[10px] text-amber-600 dark:text-amber-400">→ {item.content.owner}</span>
+          )}
+          {item.content?.deadline && (
+            <span className="text-[10px] text-gray-400 dark:text-gray-500">due {item.content.deadline}</span>
+          )}
+        </div>
+        {state?.error && <p className="text-xs text-red-500 mt-0.5">{state.error}</p>}
+        {state?.createdId && (
+          <p className="text-xs text-green-600 dark:text-green-400 mt-0.5">Created: {state.createdId}</p>
+        )}
+      </div>
+      {onApprove && !state?.createdId && (
+        <div className="flex gap-1 shrink-0">
+          <button
+            onClick={onApprove}
+            disabled={state?.status === 'creating'}
+            className="text-xs px-2 py-1 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800 rounded hover:bg-green-100 dark:hover:bg-green-900/40 disabled:opacity-40"
+          >
+            {state?.status === 'creating' ? '…' : 'Create'}
+          </button>
+          <button
+            onClick={onDismiss}
+            className="text-xs px-2 py-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+          >✕</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConversationIntakeResult({ result, onReset }) {
+  const { extractions, truncated, project } = result;
+  const [creationState, setCreationState] = useState({});
+  const [dismissed, setDismissed] = useState(new Set());
+  const [showLowConf, setShowLowConf] = useState(false);
+  const autoFiredRef = useRef(false);
+
+  const isAutoCreate = (item) =>
+    item.confidence >= 0.80 && !item.thirdParty && item.type !== 'QUESTION';
+
+  const autoItems   = extractions.filter(isAutoCreate);
+  const reviewItems = extractions.filter(
+    item => !isAutoCreate(item) && item.type !== 'QUESTION' && item.confidence >= 0.50
+  );
+  const questions   = extractions.filter(item => item.type === 'QUESTION');
+  const lowConf     = extractions.filter(
+    item => item.type !== 'QUESTION' && item.confidence < 0.50
+  );
+
+  const createItem = useCallback(async (idx, item) => {
+    setCreationState(prev => ({ ...prev, [idx]: { status: 'creating' } }));
+    try {
+      const isBeads = item.destination === 'beads';
+      const url  = isBeads ? '/.netlify/functions/beads-create' : '/.netlify/functions/tasks';
+      const body = isBeads
+        ? {
+            title:       item.title,
+            description: item.content?.description,
+            priority:    item.content?.priority,
+            labels:      project ? [project] : undefined,
+          }
+        : {
+            title:    item.title,
+            priority: item.content?.priority <= 1 ? 'high' : item.content?.priority >= 3 ? 'low' : 'medium',
+            deadline: item.content?.deadline,
+            source:   'intake',
+          };
+
+      const res  = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+
+      const createdId = data.id ?? data.task?.id ?? null;
+      setCreationState(prev => ({ ...prev, [idx]: { status: 'created', createdId } }));
+    } catch (e) {
+      setCreationState(prev => ({ ...prev, [idx]: { status: 'error', error: e.message } }));
+    }
+  }, [project]);
+
+  useEffect(() => {
+    if (autoFiredRef.current) return;
+    autoFiredRef.current = true;
+    extractions.forEach((item, idx) => {
+      if (isAutoCreate(item)) createItem(idx, item);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="space-y-4">
+      {truncated && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          Conversation was trimmed — only the first ~25k tokens were analysed.
+        </p>
+      )}
+
+      {autoItems.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
+            Created automatically
+          </p>
+          <div className="divide-y divide-gray-100 dark:divide-gray-800">
+            {autoItems.map((item) => {
+              const idx = extractions.indexOf(item);
+              return <IntakeItem key={idx} item={item} state={creationState[idx]} />;
+            })}
+          </div>
+        </div>
+      )}
+
+      {reviewItems.some((item) => !dismissed.has(extractions.indexOf(item))) && (
+        <div>
+          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
+            Needs review
+          </p>
+          <div className="divide-y divide-gray-100 dark:divide-gray-800">
+            {reviewItems.map((item) => {
+              const idx = extractions.indexOf(item);
+              if (dismissed.has(idx)) return null;
+              const state = creationState[idx];
+              return (
+                <IntakeItem
+                  key={idx}
+                  item={item}
+                  state={state}
+                  onApprove={state?.status === 'created' ? null : () => createItem(idx, item)}
+                  onDismiss={() => setDismissed(prev => new Set([...prev, idx]))}
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {questions.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
+            Questions raised
+          </p>
+          <div className="divide-y divide-gray-100 dark:divide-gray-800">
+            {questions.map((item) => (
+              <IntakeItem key={extractions.indexOf(item)} item={item} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {lowConf.length > 0 && (
+        <div>
+          <button
+            onClick={() => setShowLowConf(v => !v)}
+            className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+          >
+            {showLowConf ? '▾' : '▸'} Low confidence ({lowConf.length})
+          </button>
+          {showLowConf && (
+            <div className="mt-1 divide-y divide-gray-100 dark:divide-gray-800 opacity-60">
+              {lowConf.map((item) => (
+                <IntakeItem key={extractions.indexOf(item)} item={item} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {extractions.length === 0 && (
+        <p className="text-xs text-gray-400 dark:text-gray-500">
+          No actionable items found in the text.
+        </p>
+      )}
+
+      <button
+        onClick={onReset}
+        className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 underline underline-offset-2"
+      >
+        Capture another
+      </button>
+    </div>
+  );
+}
+
+function ConversationIntakeWidget() {
+  const { submitting, error, result, submit, reset } = useIntake();
+  const [text, setText]       = useState('');
+  const [source, setSource]   = useState('claude-session');
+  const [context, setContext] = useState('mixed');
+  const [project, setProject] = useState('');
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!text.trim()) return;
+    submit({ text, source, context, project });
+  };
+
+  const handleReset = () => { reset(); setText(''); };
+
+  if (result) return <ConversationIntakeResult result={result} onReset={handleReset} />;
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-3">
+      <textarea
+        value={text}
+        onChange={e => setText(e.target.value)}
+        placeholder="Paste a Claude session, note, or any text with tasks and commitments…"
+        rows={6}
+        className="w-full text-sm font-mono bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 resize-y focus:outline-none focus:ring-2 focus:ring-indigo-500"
+      />
+      <div className="flex flex-wrap gap-2 items-center">
+        <select
+          value={source}
+          onChange={e => setSource(e.target.value)}
+          className="text-xs bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-2 py-1 text-gray-700 dark:text-gray-300"
+        >
+          <option value="claude-session">Claude session</option>
+          <option value="note">Note</option>
+          <option value="voice-transcript">Voice transcript</option>
+          <option value="email">Email</option>
+          <option value="form">Other</option>
+        </select>
+        <select
+          value={context}
+          onChange={e => setContext(e.target.value)}
+          className="text-xs bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-2 py-1 text-gray-700 dark:text-gray-300"
+        >
+          <option value="mixed">Mixed</option>
+          <option value="work">Work</option>
+          <option value="personal">Personal</option>
+        </select>
+        <input
+          type="text"
+          value={project}
+          onChange={e => setProject(e.target.value)}
+          placeholder="project label"
+          className="text-xs bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-2 py-1 text-gray-700 dark:text-gray-300 w-28 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        />
+        <button
+          type="submit"
+          disabled={submitting || !text.trim()}
+          className="ml-auto px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          {submitting ? 'Extracting…' : 'Extract tasks'}
+        </button>
+      </div>
+      {error && <p className="text-xs text-red-500">{error}</p>}
+    </form>
+  );
+}
+
 function localTime(iso) {
   if (!iso) return null;
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -1372,6 +1676,11 @@ export default function LifeOrganizer() {
             />
           </Section>
         </div>
+
+        {/* Conversation Intake — paste text, extract tasks and commitments */}
+        <Section title="Capture" subtitle="paste text → extract tasks" defaultOpen={false}>
+          <ConversationIntakeWidget />
+        </Section>
 
         {/* Recommendations — Claude-powered portfolio: Focus Now + Up Next */}
         {(() => {
