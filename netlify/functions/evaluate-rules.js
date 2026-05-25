@@ -21,6 +21,7 @@
 // Returns: { fired: [...], evaluated_at: ISO }
 
 import { createClient } from '@supabase/supabase-js';
+import { computeFreeBlocks } from '../lib/freeBlocks.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -36,6 +37,7 @@ function evalDeadlineProximity(rule, { openTasks }) {
   const {
     warn_hours        = [24, 4],
     statuses_to_check = ['pending', 'in_progress'],
+    priority_max,
   } = rule.condition_config;
 
   const now      = Date.now();
@@ -43,12 +45,19 @@ function evalDeadlineProximity(rule, { openTasks }) {
   const cutoff   = now + maxHours * 3_600_000;
 
   return openTasks
-    .filter(t =>
-      statuses_to_check.includes(t.status) &&
-      t.deadline &&
-      new Date(t.deadline).getTime() > now &&     // not already overdue
-      new Date(t.deadline).getTime() <= cutoff,   // within the warning window
-    )
+    .filter(t => {
+      if (!statuses_to_check.includes(t.status)) return false;
+      if (!t.deadline) return false;
+      const deadlineMs = new Date(t.deadline).getTime();
+      if (deadlineMs <= now)    return false; // already overdue
+      if (deadlineMs > cutoff)  return false; // outside warning window
+      // Priority gate: suppress long-horizon warnings (> 48h) for low-priority tasks.
+      if (priority_max != null) {
+        const hoursLeft = (deadlineMs - now) / 3_600_000;
+        if (hoursLeft > 48 && (t.priority ?? 4) > priority_max) return false;
+      }
+      return true;
+    })
     .map(t => {
       const hoursLeft = Math.round((new Date(t.deadline).getTime() - now) / 3_600_000);
       const label = hoursLeft <= (Math.min(...warn_hours)) ? 'today' : 'tomorrow';
@@ -104,17 +113,15 @@ function evalTaskStalled(rule, { openTasks }) {
     });
 }
 
-function evalOpenBlock(rule, { calendarSnapshot, openTasks, beadsReady }) {
-  // Skip gracefully until Phase 2 wires up the Calendar adapter.
+function evalOpenBlock(rule, { calendarSnapshot, openTasks, beadsReady, prefs, activeRejections, userTz, today }) {
   if (!calendarSnapshot || calendarSnapshot.length === 0) return [];
 
   const {
-    min_block_minutes = 30,
+    min_block_minutes  = 30,
     match_priority_max = 1,
-    sources = ['open_tasks', 'beads_ready'],
+    sources            = ['open_tasks', 'beads_ready'],
   } = rule.condition_config;
 
-  // Build candidate task list from requested sources.
   const candidates = [
     ...(sources.includes('open_tasks')
       ? openTasks.filter(t => t.status === 'pending' && (t.priority ?? 4) <= match_priority_max)
@@ -123,48 +130,45 @@ function evalOpenBlock(rule, { calendarSnapshot, openTasks, beadsReady }) {
       ? beadsReady.filter(i => (i.priority ?? 4) <= match_priority_max)
       : []),
   ];
-
   if (candidates.length === 0) return [];
 
-  // Detect free blocks from today's events.
-  const todaySnap = calendarSnapshot.find(s => {
-    const today = new Date().toISOString().slice(0, 10);
-    return s.event_date === today;
-  });
-  if (!todaySnap || !todaySnap.events?.length) return [];
+  const todaySnap = calendarSnapshot.find(s => s.event_date === today);
+  const raw       = Array.isArray(todaySnap?.events) ? todaySnap.events : [];
+  const events    = raw
+    .map(e => ({ start: e.startISO ?? e.start, end: e.endISO ?? e.end }))
+    .filter(e => e.start && e.end);
 
-  const events = [...todaySnap.events]
-    .map(e => ({ start: new Date(e.start).getTime(), end: new Date(e.end).getTime() }))
-    .sort((a, b) => a.start - b.start);
+  const allBlocks = computeFreeBlocks(
+    events,
+    prefs?.weekly_schedule    ?? [],
+    prefs?.schedule_exceptions ?? [],
+    prefs?.planning_window    ?? null,
+    activeRejections ?? [],
+    today,
+    userTz,
+  );
 
-  const now  = Date.now();
-  const eod  = new Date().setHours(20, 0, 0, 0);  // ignore blocks after 8pm
-  const gaps = [];
-  let cursor = now;
-
-  for (const ev of events) {
-    if (ev.start > cursor + min_block_minutes * 60_000 && cursor < eod) {
-      gaps.push({ start: cursor, durationMinutes: Math.round((ev.start - cursor) / 60_000) });
-    }
-    cursor = Math.max(cursor, ev.end);
-  }
-  if (cursor < eod - min_block_minutes * 60_000) {
-    gaps.push({ start: cursor, durationMinutes: Math.round((eod - cursor) / 60_000) });
-  }
+  // Only blocks that haven't ended yet and meet the rule's minimum size.
+  const nowMs  = Date.now();
+  const blocks = allBlocks.filter(b =>
+    new Date(b.endISO).getTime() > nowMs &&
+    b.durationMinutes >= min_block_minutes,
+  );
+  if (blocks.length === 0) return [];
 
   const matches = [];
-  for (const gap of gaps) {
+  for (const block of blocks) {
     const fitting = candidates.filter(t =>
-      t.time_required_minutes && t.time_required_minutes <= gap.durationMinutes,
+      t.time_required_minutes && t.time_required_minutes <= block.durationMinutes,
     );
-    for (const task of fitting.slice(0, 1)) {  // one notification per gap
-      const h = Math.floor(gap.durationMinutes / 60);
-      const m = gap.durationMinutes % 60;
-      const label = h > 0 ? `${h}h${m > 0 ? ` ${m}m` : ''}` : `${m}m`;
+    for (const task of fitting.slice(0, 1)) {  // one notification per block
+      const s   = new Date(block.startISO).toLocaleTimeString('en-US', { timeZone: userTz, hour: '2-digit', minute: '2-digit', hour12: false });
+      const e   = new Date(block.endISO).toLocaleTimeString('en-US', { timeZone: userTz, hour: '2-digit', minute: '2-digit', hour12: false });
+      const win = `${s}–${e}`;
       matches.push({
-        title:   `${label} free — ${task.title ?? task.issue_id} fits`,
-        body:    `${task.time_required_minutes}m task · ${label} available now`,
-        payload: { gap_minutes: gap.durationMinutes, task_id: task.id ?? task.issue_id },
+        title:   `${win} free — ${task.title ?? task.issue_id} fits`,
+        body:    `${task.time_required_minutes}m task · ${block.durationMinutes}m available`,
+        payload: { gap_minutes: block.durationMinutes, start_iso: block.startISO, task_id: task.id ?? task.issue_id },
       });
     }
   }
@@ -202,18 +206,33 @@ export default async () => {
     { data: beadsReady  },
     { data: openTasks   },
     { data: calSnap     },
+    { data: prefsData   },
+    { data: rejections  },
   ] = await Promise.all([
     supabase.from('beads_ready').select('*').eq('user_id', USER_ID),
     supabase.from('open_tasks').select('*').eq('user_id', USER_ID)
       .not('status', 'in', '(completed,cancelled)'),
     supabase.from('calendar_snapshot').select('*').eq('user_id', USER_ID)
       .gte('event_date', today).lte('event_date', tomorrow),
+    supabase.from('user_preferences')
+      .select('timezone,weekly_schedule,schedule_exceptions,planning_window')
+      .eq('user_id', USER_ID).single(),
+    supabase.from('block_rejections')
+      .select('day_of_week,start_time,end_time,released_at')
+      .eq('user_id', USER_ID).is('released_at', null),
   ]);
 
+  const prefs  = prefsData ?? {};
+  const userTz = prefs.timezone ?? 'UTC';
+
   const worldState = {
-    beadsReady:       beadsReady       ?? [],
-    openTasks:        openTasks        ?? [],
-    calendarSnapshot: calSnap          ?? [],
+    beadsReady:       beadsReady  ?? [],
+    openTasks:        openTasks   ?? [],
+    calendarSnapshot: calSnap     ?? [],
+    prefs,
+    activeRejections: rejections  ?? [],
+    userTz,
+    today,
   };
 
   // 3. For issue_unblocked: pre-load all previously notified issue IDs
@@ -276,14 +295,20 @@ export default async () => {
     }
   }
 
-  // 5. Write to notification_log
+  // 5. Write to notification_log, capture inserted ids for dismiss write-back
+  let insertedIds = [];
   if (toInsert.length > 0) {
-    const { error: logErr } = await supabase.from('notification_log').insert(toInsert);
+    const { data: inserted, error: logErr } = await supabase
+      .from('notification_log')
+      .insert(toInsert)
+      .select('id');
     if (logErr) console.error('[evaluate-rules] notification_log insert failed:', logErr.message);
+    insertedIds = inserted ?? [];
   }
 
   return json(200, {
-    fired: toInsert.map(({ rule_id, channel, title, body, payload }) => ({
+    fired: toInsert.map(({ rule_id, channel, title, body, payload }, i) => ({
+      id: insertedIds[i]?.id ?? null,
       rule_id, channel, title, body, payload,
     })),
     evaluated_at: now,
