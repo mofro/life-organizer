@@ -42,7 +42,8 @@ export default async (req) => {
     const body = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      return new Response(JSON.stringify({ error: body.error || `Railway returned ${res.status}` }), {
+      console.error(`[beads-show] Railway error ${res.status}:`, body);
+      return new Response(JSON.stringify({ error: 'upstream error' }), {
         status: res.status,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -53,7 +54,8 @@ export default async (req) => {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (e) {
-    return new Response(JSON.stringify({ error: e.message }), {
+    console.error('[beads-show] Railway call failed:', e.message);
+    return new Response(JSON.stringify({ error: 'upstream error' }), {
       status: 503,
       headers: { 'Content-Type': 'application/json' },
     });

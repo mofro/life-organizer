@@ -43,12 +43,13 @@ export default async (req) => {
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      return json({ error: data.error || `Railway returned ${res.status}` }, res.status);
+      console.error(`[beads-create] Railway error ${res.status}:`, data);
+      return json({ error: 'upstream error' }, res.status);
     }
 
     return json(data, 201);
   } catch (e) {
     console.error('[beads-create] Railway call failed:', e.message);
-    return json({ error: e.message }, 503);
+    return json({ error: 'upstream error' }, 503);
   }
 };

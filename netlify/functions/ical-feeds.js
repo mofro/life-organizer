@@ -69,6 +69,22 @@ export default async (req) => {
     return json({ error: 'URL must start with https:// or webcal://' }, 400);
   }
 
+  // SSRF protection: reject private/internal hostnames at storage time.
+  let hostname;
+  try { hostname = new URL(normalized).hostname.toLowerCase(); }
+  catch { return json({ error: 'invalid URL' }, 400); }
+
+  const SSRF_DENY = [
+    /^localhost$/,
+    /\.local$/,
+    /\.internal$/,
+    /^\[/,                              // IPv6 literals e.g. [::1]
+    /^\d+\.\d+\.\d+\.\d+$/,            // any numeric IPv4
+  ];
+  if (SSRF_DENY.some(re => re.test(hostname))) {
+    return json({ error: 'URL hostname is not allowed' }, 400);
+  }
+
   const feeds = await loadFeeds(supabase);
 
   if (method === 'POST') {
