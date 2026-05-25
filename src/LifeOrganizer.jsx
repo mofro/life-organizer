@@ -751,15 +751,12 @@ function UnifiedTaskList({
   const [tab, setTab]   = useState('beads'); // 'manual' | 'beads' | 'all'
   const [open, setOpen] = useState(false);
 
-  // Auto-open when a QuickStats filter is applied; switch away from beads tab
-  // for filters that don't apply to beads items (completed, overdue).
+  // Auto-open and switch to All tab when a QuickStats filter is applied —
+  // the stat buttons are global, so show results across all sources.
   useEffect(() => {
     if (filter === 'active' || filter === 'all') return;
     setOpen(true);
-    if (tab === 'beads' && (filter === 'completed' || filter === 'overdue')) {
-      setTab('all');
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    setTab('all');
   }, [filter]);
   const now = new Date();
   const all = [...tasks, ...beadsReady];
