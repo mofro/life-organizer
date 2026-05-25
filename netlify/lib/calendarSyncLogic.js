@@ -240,63 +240,74 @@ export async function syncGoogle(supabase, userId, clientId, clientSecret) {
 // ── syncICal ───────────────────────────────────────────────────────────────────
 
 /**
- * Fetch and parse the user's iCal feed URL (stored in user_preferences.apple_ical_url),
- * write events to calendar_snapshot. Returns the normalized event list for the PWA.
+ * Fetch and parse all user iCal feeds (stored in user_preferences.ical_feeds),
+ * write events to calendar_snapshot. Falls back to apple_ical_url for users
+ * who haven't migrated yet. Returns the merged event list for the PWA.
  *
  * @returns {{ connected: boolean, synced: boolean, datesWritten: number,
  *             events: object[], error?: string }}
  */
 export async function syncICal(supabase, userId) {
-  // 1. Load iCal URL
+  // 1. Load feed URLs — prefer ical_feeds array, fall back to apple_ical_url
   const { data: prefs } = await supabase
     .from('user_preferences')
-    .select('apple_ical_url')
+    .select('ical_feeds, apple_ical_url')
     .eq('user_id', userId)
     .single();
 
-  const rawUrl = prefs?.apple_ical_url?.trim();
-  if (!rawUrl) return { connected: false, synced: false, datesWritten: 0, events: [], error: 'no_url' };
+  let feedUrls = Array.isArray(prefs?.ical_feeds) && prefs.ical_feeds.length > 0
+    ? prefs.ical_feeds
+    : prefs?.apple_ical_url ? [prefs.apple_ical_url] : [];
 
-  const feedUrl = rawUrl.replace(/^webcal:\/\//i, 'https://');
+  feedUrls = feedUrls
+    .map(u => u?.trim().replace(/^webcal:\/\//i, 'https://'))
+    .filter(Boolean);
 
-  // 2. Fetch the .ics feed
-  let icsText;
-  try {
-    const res = await fetch(feedUrl, {
-      headers: { 'User-Agent': 'LifeOrganizer/1.0 iCal-Sync' },
-    });
-    if (!res.ok) {
-      console.error('[calendarSync/ical] Feed fetch failed:', res.status, feedUrl);
-      return { connected: true, synced: false, datesWritten: 0, events: [], error: 'feed_fetch_failed' };
-    }
-    icsText = await res.text();
-  } catch (err) {
-    console.error('[calendarSync/ical] Feed fetch error:', err.message);
-    return { connected: true, synced: false, datesWritten: 0, events: [], error: 'feed_fetch_error' };
+  if (feedUrls.length === 0) {
+    return { connected: false, synced: false, datesWritten: 0, events: [] };
   }
 
-  // 3. Parse + normalize
+  // 2. Fetch all feeds in parallel
   const now          = new Date();
   const windowEnd    = new Date(now); windowEnd.setDate(windowEnd.getDate() + WINDOW_DAYS);
   const todayStr     = now.toISOString().split('T')[0];
   const windowEndStr = windowEnd.toISOString().split('T')[0];
 
-  let icalEvents;
-  try {
-    icalEvents = await ical.async.parseICS(icsText);
-  } catch (err) {
-    console.error('[calendarSync/ical] Parse error:', err.message);
-    return { connected: true, synced: false, datesWritten: 0, events: [], error: 'parse_failed' };
+  const fetchResults = await Promise.all(feedUrls.map(async (feedUrl) => {
+    try {
+      const res = await fetch(feedUrl, {
+        headers: { 'User-Agent': 'LifeOrganizer/1.0 iCal-Sync' },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) {
+        console.error('[calendarSync/ical] Feed fetch failed:', res.status, feedUrl);
+        return [];
+      }
+      const icsText    = await res.text();
+      const icalEvents = await ical.async.parseICS(icsText);
+      return normalizeICalEvents(icalEvents, todayStr, windowEndStr);
+    } catch (err) {
+      console.error('[calendarSync/ical] Feed error:', err.message, feedUrl);
+      return [];
+    }
+  }));
+
+  // 3. Merge all events, deduplicate by id (first occurrence wins)
+  const seen   = new Set();
+  const events = [];
+  for (const feedEvents of fetchResults) {
+    for (const ev of feedEvents) {
+      if (seen.has(ev.id)) continue;
+      seen.add(ev.id);
+      events.push(ev);
+    }
   }
 
-  const events = normalizeICalEvents(icalEvents, todayStr, windowEndStr);
-
-  // 4. Upsert to calendar_snapshot
+  // 4. Upsert to calendar_snapshot — source tag 'apple' preserved for compat
   const byDate = {};
   for (const ev of events) {
-    const dateStr = ev.date;
-    if (!byDate[dateStr]) byDate[dateStr] = [];
-    byDate[dateStr].push({
+    if (!byDate[ev.date]) byDate[ev.date] = [];
+    byDate[ev.date].push({
       id:        ev.id,
       title:     ev.title,
       start:     ev.startISO ?? ev.start,

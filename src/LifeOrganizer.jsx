@@ -78,41 +78,61 @@ function useICalSync() {
   return { events, connected, sync };
 }
 
-// ─── iCal URL persistence hook ───────────────────────────────────────────────
-// Loads/saves the iCal feed URL via ical-save-url.
-function useICalUrl() {
-  const [url, setUrl]         = useState('');
+// ─── iCal multi-feed hook ────────────────────────────────────────────────────
+// Manages the ical_feeds array via /.netlify/functions/ical-feeds.
+function useICalFeeds(onFeedsChange) {
+  const [feeds, setFeeds]     = useState([]);
   const [saving, setSaving]   = useState(false);
-  const [saveMsg, setSaveMsg] = useState(null); // null | 'saved' | 'error'
+  const [saveMsg, setSaveMsg] = useState(null); // null | 'added' | 'removed' | 'error'
 
-  // Load current URL from the sync function on mount (connected=true means URL is set)
   useEffect(() => {
-    fetch('/.netlify/functions/ical-sync')
+    fetch('/.netlify/functions/ical-feeds')
       .then(r => r.json())
-      .then(d => { if (d.connected) setUrl('(configured — paste a new URL to update)'); })
+      .then(d => { if (Array.isArray(d.feeds)) setFeeds(d.feeds); })
       .catch(() => {});
   }, []);
 
-  const save = useCallback(async (newUrl) => {
+  const addFeed = useCallback(async (url) => {
     setSaving(true);
     setSaveMsg(null);
     try {
-      const res  = await fetch('/.netlify/functions/ical-save-url', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ url: newUrl }),
+      const res  = await fetch('/.netlify/functions/ical-feeds', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
       });
       const data = await res.json();
-      setSaveMsg(data.ok ? 'saved' : 'error');
-      if (data.ok) setUrl(newUrl ? '(configured — paste a new URL to update)' : '');
+      if (!res.ok) throw new Error(data.error || 'Save failed');
+      setFeeds(data.feeds);
+      setSaveMsg('added');
+      onFeedsChange?.();
     } catch {
       setSaveMsg('error');
     } finally {
       setSaving(false);
     }
-  }, []);
+  }, [onFeedsChange]);
 
-  return { url, saving, saveMsg, save };
+  const removeFeed = useCallback(async (url) => {
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const res  = await fetch('/.netlify/functions/ical-feeds', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Remove failed');
+      setFeeds(data.feeds);
+      setSaveMsg('removed');
+      onFeedsChange?.();
+    } catch {
+      setSaveMsg('error');
+    } finally {
+      setSaving(false);
+    }
+  }, [onFeedsChange]);
+
+  return { feeds, saving, saveMsg, addFeed, removeFeed };
 }
 
 // ─── Claude recommendations hook ─────────────────────────────────────────────
@@ -589,51 +609,71 @@ function QueueCard({ item, historyId, dismissed, onDismiss, onAccept }) {
   );
 }
 
-// ─── iCal URL input form ──────────────────────────────────────────────────────
-function ICalUrlForm({ currentUrl, saving, saveMsg, onSave, onSynced }) {
+// ─── Calendar feeds manager ───────────────────────────────────────────────────
+function feedLabel(url) {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (host.includes('outlook') || host.includes('office365')) return 'Outlook';
+    if (host.includes('icloud') || host.includes('caldav.icloud')) return 'iCloud';
+    if (host.includes('google'))   return 'Google';
+    if (host.includes('fastmail')) return 'Fastmail';
+    if (host.includes('yahoo'))    return 'Yahoo';
+    // Capitalize first segment of hostname as a reasonable fallback
+    const base = host.replace(/^www\./, '').split('.')[0];
+    return base.charAt(0).toUpperCase() + base.slice(1);
+  } catch {
+    return 'Calendar';
+  }
+}
+
+function ICalFeedsManager({ feeds, saving, saveMsg, onAdd, onRemove }) {
   const [input, setInput] = useState('');
 
-  const handleSave = async () => {
-    await onSave(input.trim());
+  const handleAdd = async () => {
+    const url = input.trim();
+    if (!url) return;
+    await onAdd(url);
     setInput('');
-    if (input.trim()) onSynced(); // refresh events after saving a new URL
   };
 
   return (
-    <div className="space-y-1.5">
-      {currentUrl && (
-        <p className="text-xs text-green-600 flex items-center gap-1">
-          <span className="w-1.5 h-1.5 bg-green-500 rounded-full inline-block"></span>
-          iCal connected
-        </p>
+    <div className="space-y-2">
+      {feeds.length > 0 && (
+        <div className="space-y-1">
+          {feeds.map(url => (
+            <div key={url} className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 bg-green-500 rounded-full shrink-0"></span>
+              <span className="text-xs text-green-700 dark:text-green-400 font-medium">{feedLabel(url)}</span>
+              <span className="text-xs text-gray-400 dark:text-gray-500 truncate flex-1">{new URL(url).hostname}</span>
+              <button
+                onClick={() => onRemove(url)}
+                disabled={saving}
+                className="text-xs text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-40 shrink-0"
+              >Remove</button>
+            </div>
+          ))}
+        </div>
       )}
       <div className="flex gap-2">
         <input
           type="url"
           value={input}
           onChange={e => setInput(e.target.value)}
-          placeholder={currentUrl ? 'Paste new URL to update…' : 'Paste iCal URL (webcal:// or https://)'}
+          onKeyDown={e => e.key === 'Enter' && handleAdd()}
+          placeholder="Paste iCal URL (webcal:// or https://)"
           className="flex-1 text-xs px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-400 placeholder-gray-300 dark:placeholder-gray-600"
         />
         <button
-          onClick={handleSave}
-          disabled={saving}
+          onClick={handleAdd}
+          disabled={saving || !input.trim()}
           className="px-3 py-1.5 text-xs font-medium bg-gray-800 dark:bg-gray-700 text-white rounded-lg hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
-          {saving ? 'Saving…' : 'Save'}
+          {saving ? '…' : 'Add'}
         </button>
-        {currentUrl && (
-          <button
-            onClick={() => onSave('')}
-            disabled={saving}
-            className="text-xs text-gray-400 dark:text-gray-500 hover:text-red-500 underline underline-offset-2 disabled:opacity-40"
-          >
-            Remove
-          </button>
-        )}
       </div>
-      {saveMsg === 'saved' && <p className="text-xs text-green-600">Saved — syncing…</p>}
-      {saveMsg === 'error' && <p className="text-xs text-red-500">Save failed — check the URL and try again</p>}
+      {saveMsg === 'added'   && <p className="text-xs text-green-600">Added — syncing…</p>}
+      {saveMsg === 'removed' && <p className="text-xs text-gray-400">Removed.</p>}
+      {saveMsg === 'error'   && <p className="text-xs text-red-500">Failed — check the URL and try again</p>}
     </div>
   );
 }
@@ -1595,10 +1635,10 @@ export default function LifeOrganizer() {
   const { status: googleStatus, errorReason: googleErrorReason, connect: connectGoogle } = useGoogleAuth();
   // Real Google Calendar events.
   const { events: googleEvents, connected: googleCalConnected, sync: syncGoogleCal } = useCalendarSync();
-  // Apple iCal feed events.
+  // iCal feed events (multi-feed).
   const { events: icalEvents, connected: icalConnected, sync: syncICal } = useICalSync();
-  // iCal URL persistence.
-  const { url: icalUrl, saving: icalSaving, saveMsg: icalSaveMsg, save: saveICalUrl } = useICalUrl();
+  // iCal feeds manager — add/remove feeds, re-sync on change.
+  const { feeds: icalFeeds, saving: icalSaving, saveMsg: icalSaveMsg, addFeed: addICalFeed, removeFeed: removeICalFeed } = useICalFeeds(syncICal);
   // Merge and sort events from both calendar sources by start time.
   const calendarEvents    = [...googleEvents, ...icalEvents].sort((a, b) => a.start.localeCompare(b.start));
   const calendarConnected = googleCalConnected || icalConnected;
@@ -1869,16 +1909,16 @@ export default function LifeOrganizer() {
             </div>
 
             <div className="border-t border-gray-100 dark:border-gray-800 pt-3">
-              <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Apple Calendar / iCal Feed</p>
+              <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Calendar Feeds</p>
               <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">
-                Paste a calendar share URL (<code className="text-gray-500 dark:text-gray-400">webcal://</code> or <code className="text-gray-500 dark:text-gray-400">https://</code>). Works with iCloud, Fantastical, Outlook, and any CalDAV app.
+                Add any number of iCal feeds (<code className="text-gray-500 dark:text-gray-400">webcal://</code> or <code className="text-gray-500 dark:text-gray-400">https://</code>). Works with iCloud, Outlook, Fantastical, and any CalDAV app.
               </p>
-              <ICalUrlForm
-                currentUrl={icalUrl}
+              <ICalFeedsManager
+                feeds={icalFeeds}
                 saving={icalSaving}
                 saveMsg={icalSaveMsg}
-                onSave={saveICalUrl}
-                onSynced={syncICal}
+                onAdd={addICalFeed}
+                onRemove={removeICalFeed}
               />
             </div>
           </div>
