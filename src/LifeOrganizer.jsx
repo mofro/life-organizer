@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useWorldState } from './useWorldState.js';
 import { useRulesEngine } from './useRulesEngine.js';
+import { useDarkMode } from './useDarkMode.js';
 
 // Re-assign 'today'/'tomorrow' from startISO using the browser's local date,
 // then discard events outside that window. Falls back to the server date field
@@ -277,23 +278,49 @@ function useTasks() {
   return { tasks, tasksLoading, addTask, updateStatus, deleteTask, completeTask, scheduleTask };
 }
 
+// ─── Dark mode toggle ─────────────────────────────────────────────────────────
+function DarkModeToggle({ mode, setMode }) {
+  const options = [
+    { key: 'light', label: '☀' },
+    { key: 'auto',  label: '⊙' },
+    { key: 'dark',  label: '☾' },
+  ];
+  return (
+    <div className="flex items-center gap-0.5 bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
+      {options.map(({ key, label }) => (
+        <button
+          key={key}
+          onClick={() => setMode(key)}
+          title={key.charAt(0).toUpperCase() + key.slice(1)}
+          className={`px-2 py-1 rounded-md text-xs transition-colors
+            ${mode === key
+              ? 'bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 shadow-sm'
+              : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'}`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ─── Collapsible section wrapper ─────────────────────────────────────────────
 function Section({ title, subtitle, defaultOpen = true, children, badge }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="bg-white rounded-lg border border-gray-200">
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
       <button
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between p-4 text-left hover:bg-gray-50 rounded-lg transition-colors"
+        className="w-full flex items-center justify-between p-4 text-left hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors"
       >
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-gray-700">{title}</span>
-          {subtitle && <span className="text-xs text-gray-400">{subtitle}</span>}
+          <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">{title}</span>
+          {subtitle && <span className="text-xs text-gray-400 dark:text-gray-500">{subtitle}</span>}
           {badge != null && badge > 0 && (
-            <span className="text-xs bg-blue-100 text-blue-700 rounded-full px-1.5 py-0.5 font-medium">{badge}</span>
+            <span className="text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full px-1.5 py-0.5 font-medium">{badge}</span>
           )}
         </div>
-        <span className={`text-gray-400 text-xs transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>▾</span>
+        <span className={`text-gray-400 dark:text-gray-500 text-xs transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>▾</span>
       </button>
       {open && <div className="px-4 pb-4">{children}</div>}
     </div>
@@ -302,10 +329,10 @@ function Section({ title, subtitle, defaultOpen = true, children, badge }) {
 
 // ─── Source badge ─────────────────────────────────────────────────────────────
 const SOURCE_STYLE = {
-  manual:   { label: 'manual',   cls: 'bg-gray-100 text-gray-500' },
-  beads:    { label: 'beads',    cls: 'bg-indigo-100 text-indigo-700' },
-  email:    { label: 'email',    cls: 'bg-sky-100 text-sky-700' },
-  calendar: { label: 'calendar', cls: 'bg-purple-100 text-purple-700' },
+  manual:   { label: 'manual',   cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' },
+  beads:    { label: 'beads',    cls: 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300' },
+  email:    { label: 'email',    cls: 'bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300' },
+  calendar: { label: 'calendar', cls: 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300' },
 };
 
 function SourceBadge({ source, sourceUrl }) {
@@ -352,11 +379,11 @@ function QuickStats({ tasks, filter, onFilterChange }) {
           <button
             key={label}
             onClick={() => onFilterChange(active ? 'all' : filterKey)}
-            className={`bg-white rounded-lg border p-3 text-center transition-all cursor-pointer hover:shadow-sm
-              ${active ? `border-transparent ring-2 ${ring}` : 'border-gray-200 hover:border-gray-300'}`}
+            className={`bg-white dark:bg-gray-900 rounded-lg border p-3 text-center transition-all cursor-pointer hover:shadow-sm
+              ${active ? `border-transparent ring-2 ${ring}` : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'}`}
           >
             <p className={`text-2xl font-bold ${color}`}>{value}</p>
-            <p className="text-xs text-gray-500 mt-0.5">{label}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{label}</p>
           </button>
         );
       })}
@@ -366,28 +393,28 @@ function QuickStats({ tasks, filter, onFilterChange }) {
 
 // ─── Recommendation card ──────────────────────────────────────────────────────
 function RecommendationCard({ task, onComplete }) {
-  const priorityColor = { high: 'bg-red-50 border-red-200', medium: 'bg-yellow-50 border-yellow-200', low: 'bg-green-50 border-green-200' };
+  const priorityColor = { high: 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800', medium: 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800', low: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' };
   return (
-    <div className={`border rounded-lg p-3 flex items-start gap-3 ${priorityColor[task.priority] || 'bg-gray-50 border-gray-200'}`}>
+    <div className={`border rounded-lg p-3 flex items-start gap-3 ${priorityColor[task.priority] || 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'}`}>
       <div className="flex-1 min-w-0">
-        <p className="font-medium text-gray-900 text-sm truncate">{task.title}</p>
-        <p className="text-xs text-gray-500 mt-0.5">{task.reason}</p>
+        <p className="font-medium text-gray-900 dark:text-gray-100 text-sm truncate">{task.title}</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{task.reason}</p>
         <div className="flex gap-2 mt-1 flex-wrap">
           {task.timeRequired && (
-            <span className="text-xs text-gray-400">{task.timeRequired >= 60 ? `${Math.round(task.timeRequired / 60)}h` : `${task.timeRequired}m`}</span>
+            <span className="text-xs text-gray-400 dark:text-gray-500">{task.timeRequired >= 60 ? `${Math.round(task.timeRequired / 60)}h` : `${task.timeRequired}m`}</span>
           )}
           {task.deadline && (
-            <span className="text-xs text-gray-400">due {new Date(task.deadline).toLocaleDateString()}</span>
+            <span className="text-xs text-gray-400 dark:text-gray-500">due {new Date(task.deadline).toLocaleDateString()}</span>
           )}
           <SourceBadge source={task.source} sourceUrl={task.sourceUrl} />
         </div>
       </div>
       {task.source === 'beads' ? (
-        <span className="text-xs text-gray-300 shrink-0 pt-0.5">bd close {task.beadsId}</span>
+        <span className="text-xs text-gray-300 dark:text-gray-600 shrink-0 pt-0.5">bd close {task.beadsId}</span>
       ) : (
         <button
           onClick={() => onComplete(task.id)}
-          className="text-xs bg-white border border-gray-300 rounded px-2 py-1 hover:bg-gray-50 shrink-0"
+          className="text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded px-2 py-1 hover:bg-gray-50 dark:hover:bg-gray-700 shrink-0"
         >
           Done
         </button>
@@ -420,12 +447,12 @@ function ICalUrlForm({ currentUrl, saving, saveMsg, onSave, onSynced }) {
           value={input}
           onChange={e => setInput(e.target.value)}
           placeholder={currentUrl ? 'Paste new URL to update…' : 'Paste iCal URL (webcal:// or https://)'}
-          className="flex-1 text-xs px-2 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 placeholder-gray-300"
+          className="flex-1 text-xs px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-400 placeholder-gray-300 dark:placeholder-gray-600"
         />
         <button
           onClick={handleSave}
           disabled={saving}
-          className="px-3 py-1.5 text-xs font-medium bg-gray-800 text-white rounded-lg hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="px-3 py-1.5 text-xs font-medium bg-gray-800 dark:bg-gray-700 text-white rounded-lg hover:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           {saving ? 'Saving…' : 'Save'}
         </button>
@@ -433,7 +460,7 @@ function ICalUrlForm({ currentUrl, saving, saveMsg, onSave, onSynced }) {
           <button
             onClick={() => onSave('')}
             disabled={saving}
-            className="text-xs text-gray-400 hover:text-red-500 underline underline-offset-2 disabled:opacity-40"
+            className="text-xs text-gray-400 dark:text-gray-500 hover:text-red-500 underline underline-offset-2 disabled:opacity-40"
           >
             Remove
           </button>
@@ -452,7 +479,7 @@ function localTime(iso) {
 
 // ─── Calendar section ─────────────────────────────────────────────────────────
 function CalendarContent({ events, googleConnected, icalConnected, loading }) {
-  const typeStyle = { meeting: 'bg-blue-100 text-blue-700', focus: 'bg-purple-100 text-purple-700' };
+  const typeStyle = { meeting: 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300', focus: 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300' };
   const connected = googleConnected || icalConnected;
 
   if (loading) {
@@ -476,14 +503,14 @@ function CalendarContent({ events, googleConnected, icalConnected, loading }) {
       {[['Today', todayEvents], ['Tomorrow', tomorrowEvents]].map(([label, evs]) =>
         evs.length > 0 && (
           <div key={label}>
-            <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-1.5">{label}</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 font-medium uppercase tracking-wide mb-1.5">{label}</p>
             <div className="space-y-1">
               {evs.map(ev => (
                 <div key={ev.id} className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400 w-20 shrink-0">
+                  <span className="text-xs text-gray-400 dark:text-gray-500 w-20 shrink-0">
                     {localTime(ev.startISO) ?? ev.start}–{localTime(ev.endISO) ?? ev.end}
                   </span>
-                  <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${typeStyle[ev.type] || 'bg-gray-100 text-gray-600'}`}>{ev.title}</span>
+                  <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${typeStyle[ev.type] || 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}>{ev.title}</span>
                 </div>
               ))}
             </div>
@@ -527,18 +554,18 @@ function TaskForm({ onAdd }) {
         name="title"
         type="text"
         placeholder="Task title..."
-        className="w-full border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        className="w-full border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
         autoComplete="off"
       />
       <div className="grid grid-cols-2 gap-2">
-        <select name="category" className="border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <select name="category" className="border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200">
           <option value="general">General</option>
           <option value="work">Work</option>
           <option value="personal">Personal</option>
           <option value="health">Health</option>
           <option value="learning">Learning</option>
         </select>
-        <select name="priority" className="border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <select name="priority" className="border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200">
           <option value="medium">Medium priority</option>
           <option value="high">High priority</option>
           <option value="low">Low priority</option>
@@ -550,12 +577,12 @@ function TaskForm({ onAdd }) {
           type="number"
           placeholder="Time (minutes)"
           min="1"
-          className="border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
         />
         <input
           name="deadline"
           type="date"
-          className="border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
         />
       </div>
       <button
@@ -574,7 +601,7 @@ function TaskRow({ task, onStatusChange, onDelete, onSchedule }) {
   const [scheduleError, setScheduleError] = useState(false);
 
   const statusColor   = { pending: 'text-gray-400', in_progress: 'text-yellow-500', completed: 'text-green-500' };
-  const priorityBadge = { high: 'bg-red-100 text-red-700', medium: 'bg-yellow-100 text-yellow-700', low: 'bg-gray-100 text-gray-600' };
+  const priorityBadge = { high: 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300', medium: 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300', low: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' };
   const isOverdue = task.deadline && new Date(task.deadline) < new Date() && task.status !== 'completed';
 
   const handleSchedule = useCallback(async () => {
@@ -591,7 +618,7 @@ function TaskRow({ task, onStatusChange, onDelete, onSchedule }) {
   }, [onSchedule, task.id]);
 
   return (
-    <div className={`flex items-start gap-3 py-2.5 border-b border-gray-100 last:border-0 ${task.status === 'completed' ? 'opacity-50' : ''}`}>
+    <div className={`flex items-start gap-3 py-2.5 border-b border-gray-100 dark:border-gray-800 last:border-0 ${task.status === 'completed' ? 'opacity-50' : ''}`}>
       <select
         value={task.status}
         onChange={e => onStatusChange(task.id, e.target.value)}
@@ -602,11 +629,11 @@ function TaskRow({ task, onStatusChange, onDelete, onSchedule }) {
         <option value="completed">●</option>
       </select>
       <div className="flex-1 min-w-0">
-        <p className={`text-sm ${task.status === 'completed' ? 'line-through text-gray-400' : 'text-gray-800'}`}>{task.title}</p>
+        <p className={`text-sm ${task.status === 'completed' ? 'line-through text-gray-400 dark:text-gray-600' : 'text-gray-800 dark:text-gray-200'}`}>{task.title}</p>
         <div className="flex flex-wrap gap-1.5 mt-1">
           <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${priorityBadge[task.priority]}`}>{task.priority}</span>
-          <span className="text-xs text-gray-400">{task.category}</span>
-          {task.timeRequired && <span className="text-xs text-gray-400">{task.timeRequired >= 60 ? `${Math.round(task.timeRequired / 60)}h` : `${task.timeRequired}m`}</span>}
+          <span className="text-xs text-gray-400 dark:text-gray-500">{task.category}</span>
+          {task.timeRequired && <span className="text-xs text-gray-400 dark:text-gray-500">{task.timeRequired >= 60 ? `${Math.round(task.timeRequired / 60)}h` : `${task.timeRequired}m`}</span>}
           {task.deadline && (
             <span className={`text-xs ${isOverdue ? 'text-red-500 font-medium' : 'text-gray-400'}`}>
               {isOverdue ? 'overdue · ' : ''}{new Date(task.deadline).toLocaleDateString()}
@@ -630,13 +657,13 @@ function TaskRow({ task, onStatusChange, onDelete, onSchedule }) {
                 : <button
                     onClick={handleSchedule}
                     disabled={scheduling}
-                    className="text-xs text-gray-300 hover:text-purple-500 disabled:opacity-40 transition-colors"
+                    className="text-xs text-gray-300 dark:text-gray-600 hover:text-purple-500 disabled:opacity-40 transition-colors"
                     title="Schedule as calendar event"
                   >{scheduling ? '…' : '📅'}</button>
           )}
         </div>
       </div>
-      <button onClick={() => onDelete(task.id)} className="text-gray-300 hover:text-red-400 text-xs shrink-0 mt-0.5">✕</button>
+      <button onClick={() => onDelete(task.id)} className="text-gray-300 dark:text-gray-600 hover:text-red-400 text-xs shrink-0 mt-0.5">✕</button>
     </div>
   );
 }
@@ -772,22 +799,22 @@ function UnifiedTaskList({
   };
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200">
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
       {/* Tab bar */}
-      <div className="flex items-center gap-1 px-3 pt-3 pb-2 border-b border-gray-100">
+      <div className="flex items-center gap-1 px-3 pt-3 pb-2 border-b border-gray-100 dark:border-gray-800">
         {TABS.map(({ key, label, count }) => (
           <button
             key={key}
             onClick={() => setTab(key)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors
               ${tab === key
-                ? 'bg-blue-100 text-blue-700'
-                : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'}`}
+                ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+                : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
           >
             {label}
             {count > 0 && (
               <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none
-                ${tab === key ? 'bg-blue-200 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
+                ${tab === key ? 'bg-blue-200 dark:bg-blue-800 text-blue-700 dark:text-blue-200' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}`}>
                 {count}
               </span>
             )}
@@ -795,10 +822,10 @@ function UnifiedTaskList({
         ))}
         <div className="ml-auto flex items-center gap-2">
           {syncLabel && (
-            <span className={`text-xs ${beadsStale ? 'text-amber-500' : 'text-gray-300'}`}>{syncLabel}</span>
+            <span className={`text-xs ${beadsStale ? 'text-amber-500' : 'text-gray-300 dark:text-gray-600'}`}>{syncLabel}</span>
           )}
           {onRefresh && (
-            <button onClick={onRefresh} className="text-xs text-gray-300 hover:text-gray-500" title="Refresh">↺</button>
+            <button onClick={onRefresh} className="text-xs text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400" title="Refresh">↺</button>
           )}
         </div>
       </div>
@@ -807,7 +834,7 @@ function UnifiedTaskList({
         {/* Active filter chip */}
         {filter !== 'active' && filter !== 'all' && (
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-xs bg-blue-50 text-blue-600 border border-blue-200 rounded-full px-2 py-0.5">
+            <span className="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-full px-2 py-0.5">
               {filterLabel[filter]}
             </span>
             <button onClick={() => onFilterChange('active')} className="text-xs text-gray-400 hover:text-gray-600">✕ clear</button>
@@ -830,11 +857,11 @@ function UnifiedTaskList({
             <div>
               {groups.map(({ featureId, featureTitle, featurePriority, tasks }) => (
                 <div key={featureId} className="mb-4">
-                  <div className="flex items-center gap-2 px-1 py-1.5 mb-1 border-b border-gray-100">
-                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Feature</span>
-                    <span className="text-sm font-medium text-gray-700 flex-1">{featureTitle}</span>
+                  <div className="flex items-center gap-2 px-1 py-1.5 mb-1 border-b border-gray-100 dark:border-gray-800">
+                    <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Feature</span>
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-200 flex-1">{featureTitle}</span>
                     {featurePriority !== null && (
-                      <span className="text-xs bg-gray-100 text-gray-500 rounded px-1.5 py-0.5 font-mono">P{featurePriority}</span>
+                      <span className="text-xs bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded px-1.5 py-0.5 font-mono">P{featurePriority}</span>
                     )}
                   </div>
                   <div className="pl-3">
@@ -844,8 +871,8 @@ function UnifiedTaskList({
               ))}
               {standalone.length > 0 && (
                 <div className="mb-4">
-                  <div className="flex items-center gap-2 px-1 py-1.5 mb-1 border-b border-gray-100">
-                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Standalone Tasks</span>
+                  <div className="flex items-center gap-2 px-1 py-1.5 mb-1 border-b border-gray-100 dark:border-gray-800">
+                    <span className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">Standalone Tasks</span>
                   </div>
                   <div className="pl-3">
                     {standalone.map(task => <BeadsTaskRow key={task.id} task={task} />)}
@@ -884,7 +911,7 @@ function CopyCommand({ cmd }) {
     <button
       onClick={copy}
       title="Copy to clipboard"
-      className="flex items-center gap-1.5 text-xs font-mono bg-gray-50 border border-gray-200 text-gray-500 rounded px-2 py-1 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+      className="flex items-center gap-1.5 text-xs font-mono bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 rounded px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
     >
       <span>{copied ? '✓ copied' : cmd}</span>
     </button>
@@ -909,30 +936,30 @@ function BeadsTaskRow({ task }) {
     }
   }, [open, detail, task.beadsId]);
 
-  const priorityBadge = { high: 'bg-red-100 text-red-700', medium: 'bg-yellow-100 text-yellow-700', low: 'bg-gray-100 text-gray-600' };
+  const priorityBadge = { high: 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300', medium: 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300', low: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' };
 
   return (
-    <div className="border-b border-gray-100 last:border-0">
+    <div className="border-b border-gray-100 dark:border-gray-800 last:border-0">
       {/* Summary row — click to expand */}
       <button
         onClick={toggle}
-        className="w-full flex items-start gap-3 py-2.5 text-left hover:bg-gray-50 rounded transition-colors"
+        className="w-full flex items-start gap-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-gray-800 rounded transition-colors"
       >
-        <span className={`text-xs mt-0.5 transition-transform duration-150 text-indigo-300 ${open ? 'rotate-90' : ''}`}>▶</span>
+        <span className={`text-xs mt-0.5 transition-transform duration-150 text-indigo-300 dark:text-indigo-500 ${open ? 'rotate-90' : ''}`}>▶</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 min-w-0">
-            <p className="text-sm text-gray-800 truncate">{task.title}</p>
-            <span className="text-xs text-gray-300 shrink-0">{task.beadsId}</span>
+            <p className="text-sm text-gray-800 dark:text-gray-200 truncate">{task.title}</p>
+            <span className="text-xs text-gray-300 dark:text-gray-600 shrink-0">{task.beadsId}</span>
           </div>
           <div className="flex flex-wrap gap-1.5 mt-1">
             <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${priorityBadge[task.priority]}`}>{task.priority}</span>
             {task.status === 'in_progress' && (
-              <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-indigo-100 text-indigo-700">▶ active</span>
+              <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300">▶ active</span>
             )}
             {task.issueType && task.issueType !== 'task' && (
-              <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{task.issueType}</span>
+              <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{task.issueType}</span>
             )}
-            {task.project && <span className="text-xs text-gray-400">{task.project}</span>}
+            {task.project && <span className="text-xs text-gray-400 dark:text-gray-500">{task.project}</span>}
             {task.blockedBy?.length > 0 && (
               <span className="text-xs text-orange-500">blocked by {task.blockedBy.length}</span>
             )}
@@ -982,8 +1009,8 @@ function BeadsTaskRow({ task }) {
 function DetailBlock({ label, text }) {
   return (
     <div>
-      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">{label}</p>
-      <p className="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed">{text}</p>
+      <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-0.5">{label}</p>
+      <p className="text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap leading-relaxed">{text}</p>
     </div>
   );
 }
@@ -995,13 +1022,13 @@ function ExternalRef({ value, description }) {
 
   return (
     <div>
-      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">External ref</p>
+      <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-0.5">External ref</p>
       {url ? (
         <a href={url} target="_blank" rel="noreferrer"
-          className="text-xs text-sky-600 hover:underline break-all"
+          className="text-xs text-sky-600 dark:text-sky-400 hover:underline break-all"
         >{value} ↗</a>
       ) : (
-        <span className="text-xs text-gray-600">{value}</span>
+        <span className="text-xs text-gray-600 dark:text-gray-400">{value}</span>
       )}
     </div>
   );
@@ -1058,6 +1085,7 @@ function useGoogleAuth() {
 // ─── Main app ─────────────────────────────────────────────────────────────────
 export default function LifeOrganizer() {
   const [filter, setFilter] = useState('active');
+  const [darkMode, setDarkMode] = useDarkMode();
 
   // Tasks — Supabase-backed, with optimistic updates and one-time localStorage migration.
   const { tasks, tasksLoading, addTask, updateStatus, deleteTask, completeTask, scheduleTask } = useTasks();
@@ -1094,16 +1122,19 @@ export default function LifeOrganizer() {
   }, [worldLoading]);
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-4">
       <div className="max-w-2xl mx-auto space-y-4">
 
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Life Organizer</h1>
-            <p className="text-xs text-gray-400">AI-powered task recommendations</p>
+            <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">Life Organizer</h1>
+            <p className="text-xs text-gray-400 dark:text-gray-500">AI-powered task recommendations</p>
           </div>
-          <div className="text-xs text-gray-400">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-400 dark:text-gray-500">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</span>
+            <DarkModeToggle mode={darkMode} setMode={setDarkMode} />
+          </div>
         </div>
 
         {/* Stats — clickable filters across all sources */}
@@ -1127,19 +1158,19 @@ export default function LifeOrganizer() {
 
           {/* Summary line from Claude */}
           {recoSummary && (
-            <p className="text-xs text-gray-500 italic mb-3">{recoSummary}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 italic mb-3">{recoSummary}</p>
           )}
 
           {/* Empty state */}
           {recoEmpty && !recoLoading && (
-            <p className="text-xs text-gray-400 mb-3">
+            <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">
               No open tasks or unblocked Beads issues. Add a task or run <code className="font-mono">bd ready</code> to surface work.
             </p>
           )}
 
           {/* Prompt text before first ask */}
           {claudeRecs.length === 0 && !recoLoading && !recoError && !recoEmpty && (
-            <p className="text-xs text-gray-400 mb-3">
+            <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">
               Claude will rank your open tasks and ready Beads issues by deadline, urgency, and calendar context.
             </p>
           )}
@@ -1159,7 +1190,7 @@ export default function LifeOrganizer() {
               {recoLoading ? 'Thinking…' : claudeRecs.length > 0 ? 'Refresh' : 'Ask Claude'}
             </button>
             {recoCached && recoCachedAt && (
-              <span className="text-xs text-gray-300">
+              <span className="text-xs text-gray-300 dark:text-gray-600">
                 cached · {new Date(recoCachedAt).toLocaleTimeString()}
               </span>
             )}
@@ -1174,20 +1205,20 @@ export default function LifeOrganizer() {
             )}
             <div className="space-y-1.5">
               {notifications.map((n, i) => (
-                <div key={i} className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                <div key={i} className="flex items-start gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-amber-900">{n.title}</p>
-                    {n.body && <p className="text-xs text-amber-700 mt-0.5">{n.body}</p>}
+                    <p className="text-sm font-medium text-amber-900 dark:text-amber-200">{n.title}</p>
+                    {n.body && <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">{n.body}</p>}
                   </div>
                   <button
                     onClick={() => dismiss(i)}
-                    className="text-amber-300 hover:text-amber-500 text-xs shrink-0 mt-0.5"
+                    className="text-amber-300 dark:text-amber-600 hover:text-amber-500 dark:hover:text-amber-400 text-xs shrink-0 mt-0.5"
                   >✕</button>
                 </div>
               ))}
             </div>
             {evaluatedAt && (
-              <p className="text-xs text-gray-300 mt-2">
+              <p className="text-xs text-gray-300 dark:text-gray-600 mt-2">
                 evaluated {new Date(evaluatedAt).toLocaleTimeString()}
                 {rulesLoading && ' · checking…'}
               </p>
@@ -1230,19 +1261,19 @@ export default function LifeOrganizer() {
         <Section title="Settings" defaultOpen={false}>
           <div className="space-y-3">
             <div>
-              <p className="text-xs font-medium text-gray-700 mb-1">Google Calendar + Gmail</p>
-              <p className="text-xs text-gray-400 mb-2">
+              <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Google Calendar + Gmail</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">
                 Grants read-only access to Calendar events and Gmail messages for the AI context collector.
               </p>
               {googleStatus === 'connected' ? (
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-green-50 text-green-700 border border-green-200 rounded-lg">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800 rounded-lg">
                     <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>
                     Google Connected
                   </span>
                   <button
                     onClick={connectGoogle}
-                    className="text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2"
+                    className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 underline underline-offset-2"
                     title="Re-authorize to update permissions"
                   >re-authorize</button>
                 </div>
@@ -1256,7 +1287,7 @@ export default function LifeOrganizer() {
                     {googleStatus === 'unknown' ? 'Checking…' : 'Connect Google'}
                   </button>
                   {!import.meta.env.VITE_GOOGLE_CLIENT_ID && (
-                    <p className="text-xs text-amber-600">VITE_GOOGLE_CLIENT_ID not configured</p>
+                    <p className="text-xs text-amber-600 dark:text-amber-400">VITE_GOOGLE_CLIENT_ID not configured</p>
                   )}
                   {googleStatus === 'error' && (
                     <p className="text-xs text-red-500">Connection failed{googleErrorReason ? ` (${googleErrorReason})` : ''} — please try again</p>
@@ -1265,10 +1296,10 @@ export default function LifeOrganizer() {
               )}
             </div>
 
-            <div className="border-t border-gray-100 pt-3">
-              <p className="text-xs font-medium text-gray-700 mb-1">Apple Calendar / iCal Feed</p>
-              <p className="text-xs text-gray-400 mb-2">
-                Paste a calendar share URL (<code className="text-gray-500">webcal://</code> or <code className="text-gray-500">https://</code>). Works with iCloud, Fantastical, Outlook, and any CalDAV app.
+            <div className="border-t border-gray-100 dark:border-gray-800 pt-3">
+              <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Apple Calendar / iCal Feed</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">
+                Paste a calendar share URL (<code className="text-gray-500 dark:text-gray-400">webcal://</code> or <code className="text-gray-500 dark:text-gray-400">https://</code>). Works with iCloud, Fantastical, Outlook, and any CalDAV app.
               </p>
               <ICalUrlForm
                 currentUrl={icalUrl}
@@ -1281,7 +1312,7 @@ export default function LifeOrganizer() {
           </div>
         </Section>
 
-        <p className="text-xs text-center text-gray-300">Tasks · Beads · Calendar</p>
+        <p className="text-xs text-center text-gray-300 dark:text-gray-600">Tasks · Beads · Calendar</p>
       </div>
     </div>
   );
