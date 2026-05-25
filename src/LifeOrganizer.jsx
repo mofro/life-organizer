@@ -721,13 +721,12 @@ function UnifiedTaskList({
   filter, onFilterChange,
   worldError, worldLoading, beadsStale, syncedAt, onRefresh,
 }) {
-  const [tab, setTab] = useState('manual'); // 'manual' | 'beads' | 'all' | 'hierarchy'
+  const [tab, setTab] = useState('beads'); // 'manual' | 'beads' | 'all'
   const now = new Date();
   const all = [...tasks, ...beadsReady];
 
-  // Tab → source slice
+  // Tab → source slice (beads tab uses hierarchy renderer, not this flat filter)
   const byTab = tab === 'manual' ? all.filter(t => t.source !== 'beads')
-              : tab === 'beads'  ? all.filter(t => t.source === 'beads')
               : all;
 
   // Status filter (from QuickStats) applied within the active tab
@@ -745,16 +744,14 @@ function UnifiedTaskList({
   const sorted = sortUnified(filtered);
 
   // Badge counts: active items per tab (ignore current status filter so badges always show real totals)
-  const countManual    = all.filter(t => t.source !== 'beads' && t.status !== 'completed' && t.status !== 'cancelled').length;
-  const countBeads     = all.filter(t => t.source === 'beads').length;
-  const countAll       = all.filter(t => t.status !== 'completed' && t.status !== 'cancelled').length;
-  const hasHierarchy   = beadsReady.some(t => t.parentFeatureId);
+  const countManual = all.filter(t => t.source !== 'beads' && t.status !== 'completed' && t.status !== 'cancelled').length;
+  const countBeads  = all.filter(t => t.source === 'beads').length;
+  const countAll    = all.filter(t => t.status !== 'completed' && t.status !== 'cancelled').length;
 
   const TABS = [
-    { key: 'manual',    label: 'Manual',    count: countManual },
-    { key: 'beads',     label: 'Beads',     count: countBeads  },
-    { key: 'all',       label: 'All',       count: countAll    },
-    ...(hasHierarchy ? [{ key: 'hierarchy', label: 'Hierarchy', count: countBeads }] : []),
+    { key: 'manual', label: 'Manual', count: countManual },
+    ...(countBeads > 0 ? [{ key: 'beads', label: 'Beads', count: countBeads }] : []),
+    { key: 'all',    label: 'All',    count: countAll    },
   ];
 
   const filterLabel = {
@@ -769,10 +766,9 @@ function UnifiedTaskList({
       : undefined;
 
   const EMPTY = {
-    manual:    'No tasks yet — add one above',
-    beads:     'No unblocked Beads issues.',
-    all:       'No tasks yet — add one above',
-    hierarchy: 'No unblocked Beads issues.',
+    manual: 'No tasks yet — add one above',
+    beads:  'No unblocked Beads issues.',
+    all:    'No tasks yet — add one above',
   };
 
   return (
@@ -825,7 +821,7 @@ function UnifiedTaskList({
           <p className="text-xs text-gray-400 py-1">Syncing…</p>
         )}
 
-        {tab === 'hierarchy' ? (() => {
+        {tab === 'beads' ? (() => {
           const { groups, standalone } = groupByFeature(beadsReady);
           if (groups.length === 0 && standalone.length === 0) {
             return <p className="text-sm text-gray-400 text-center py-6">{EMPTY.hierarchy}</p>;
