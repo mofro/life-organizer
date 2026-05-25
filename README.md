@@ -1,347 +1,177 @@
-# Intelligent Life Organizer
+# Life Organizer
 
-An AI-powered productivity application that bridges calendar management and task prioritization, providing intelligent recommendations for optimal time utilization.
+An event-driven intelligence system that collects world state (calendar, tasks, Beads issues), runs a rules engine over it, and surfaces AI-powered recommendations through a React PWA.
 
-**Status:** 🏗️ In Development - Phase 0 Complete
-
----
-
-## What It Does
-
-Life Organizer acts as an intelligent orchestration layer that analyzes your:
-- **Calendar** (Google Calendar, future: Apple Calendar)
-- **Tasks** (self-managed + Beads CLI integration)
-- **Current Context** (time of day, available time blocks, deadlines)
-
-And provides **AI-powered recommendations** like:
-- _"Your 3pm meeting was cancelled - perfect time for that 2-hour project you've been postponing"_
-- _"🚨 Flight booking deadline tomorrow - you should handle this today"_
-- _"You have three 30-minute gaps today - ideal for these quick wins..."_
-
----
-
-## Key Features
-
-### Current (Phase 0-1)
-- ✅ Task management with time estimates and deadlines
-- ✅ Basic AI recommendation engine
-- ✅ Clean form inputs (no focus loss issues)
-- ✅ Browser-based storage (window.storage)
-
-### Coming Soon (Phase 2-4)
-- 🔄 Google Calendar integration via MCP
-- 🔄 Beads CLI task integration (read-only + quick actions)
-- 🔄 Email notifications for urgent tasks
-- 🔄 PWA deployment (installable, works offline)
-- 🔄 Cross-device sync via Supabase
-
-### Future (Phase 5+)
-- ⏳ SMS notifications
-- ⏳ Apple Calendar integration
-- ⏳ Team coordination features
-- ⏳ Native mobile app (if PWA insufficient)
+**Live:** https://life-organizer-mo.netlify.app
 
 ---
 
 ## Architecture
 
-### Modern MCP-First Design
-
-Instead of building custom integrations, Life Organizer leverages the **Model Context Protocol (MCP)** to connect with external services:
-
 ```
-Life Organizer (React + Claude)
-        ↓
-   MCP Protocol
-        ↓
-┌────────────────────────────────┐
-│  Calendar MCP  │  Gmail MCP    │
-│  Beads MCP     │  Drive MCP    │
-│  Zapier MCP    │  (extensible) │
-└────────────────────────────────┘
+React PWA (Vite)
+      ↓
+Netlify Functions (serverless)
+      ↓                    ↓
+Supabase (world state)   Railway (Beads Service)
+      ↓                    ↓
+  open_tasks           beads-global (Dolt)
+  calendar_snapshot    ←── bd repo sync ──← project repos
+  recommendation_history
+  user_preferences
 ```
 
-**Benefits:**
-- 70-80% less integration code
-- Future-proof (new services = new MCP, not new code)
-- Leverages existing MCP servers (Calendar, Gmail, Drive already exist)
+Full design: [`.notes/ARD-v2-system-architecture.md`](.notes/ARD-v2-system-architecture.md)
 
-### Tech Stack
+### Netlify Functions
 
-**Frontend:**
-- React 18
-- Tailwind CSS
-- Lucide React (icons)
-
-**Backend:**
-- Netlify Functions (serverless)
-- Supabase (PostgreSQL + Auth)
-- Anthropic Claude API (AI recommendations)
-
-**Integrations:**
-- Google Calendar MCP
-- Gmail MCP
-- Beads MCP (to be built)
-- Google Drive MCP (optional)
+| Function | Purpose |
+|---|---|
+| `collect-world-state` | Aggregates tasks, Beads issues, calendar, and Gmail into Supabase |
+| `recommend` | Claude-powered focus/queue/overdue portfolio (GET restores, POST refreshes) |
+| `recommendations` | PATCH endpoint for thumbs feedback write-back |
+| `evaluate-rules` | Runs the rules engine over world state, returns fired alerts |
+| `intake` | Conversation intake agent — Claude extracts tasks from pasted text |
+| `beads-show` | Proxy: GET /api/beads/show/:id on Railway |
+| `beads-create` | Proxy: POST /api/beads/create on Railway |
+| `tasks` | CRUD for open_tasks (GET/POST/PATCH/DELETE) |
+| `schedule-task` | Creates a Google Calendar event for a task |
+| `calendar-sync` | On-demand Google Calendar sync |
+| `calendar-sync-scheduled` | Nightly (06:00 UTC) Google + iCal sync |
+| `ical-sync` | On-demand iCal feed sync |
+| `ical-feeds` | Manage iCal feed URLs (GET/POST/DELETE) |
+| `ical-save-url` | Legacy single-URL save (superseded by ical-feeds) |
+| `notifications` | Reads fired notifications from Supabase |
+| `auth-google-callback` | Google OAuth callback |
+| `auth-google-refresh` | Google token refresh |
+| `auth-google-status` | Google connection status check |
 
 ---
 
-## Project Structure
+## Features
 
-```
-life-organizer/
-├── .beads/                  # Beads task database (Dolt SQL)
-├── .notes/                  # Documentation
-│   ├── ARD-life-organizer.md   # Complete architecture doc
-│   └── plan.md              # Implementation plan with Beads tasks
-├── src/                     # React source (Phase 1+)
-├── netlify/                 # Serverless functions (Phase 3+)
-├── public/                  # Static assets
-├── package.json
-├── netlify.toml             # Deployment config
-└── README.md                # This file
-```
+- **Task management** — manual tasks in Supabase `open_tasks`, with deadlines, priorities, time estimates
+- **Beads integration** — ready issues pulled from Railway-hosted Beads service; create issues from intake agent
+- **Google Calendar** — OAuth-connected, synced to 14-day snapshot, used for free-block calculation
+- **Multi-feed iCal** — add any number of iCloud, Outlook, or CalDAV feeds; labelled by domain
+- **Claude recommendations** — Focus Now + Up Next queue with thumbs feedback; 30-min server cache
+- **Rules Engine** — alert notifications triggered by world state patterns
+- **Conversation Intake Agent** — paste a Claude session or note; Claude extracts tasks/commitments with confidence routing (auto-create ≥0.80, review 0.50–0.79, questions panel, low-confidence collapsed)
 
 ---
 
-## Getting Started
+## Tech Stack
+
+- **Frontend:** React 18, Vite, Tailwind CSS, PWA (Workbox)
+- **Backend:** Netlify Functions (ESM)
+- **Database:** Supabase (PostgreSQL) — world state, tasks, calendar snapshot, preferences
+- **Beads Service:** Railway — hosts `bd` CLI + beads-global Dolt database
+- **AI:** Anthropic Claude (claude-sonnet-4-6 for recommendations, claude-haiku-4-5-20251001 for intake)
+
+---
+
+## Environment Variables
+
+### Netlify (server-side functions)
+
+| Variable | Purpose |
+|---|---|
+| `ANTHROPIC_API_KEY` | Claude API access |
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (full DB access) |
+| `SUPABASE_USER_ID` | Single-user UUID (owner of all rows) |
+| `BEADS_SERVICE_URL` | Railway Beads Service base URL |
+| `BEADS_API_KEY` | Railway auth bearer token |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
+
+### Vite (client-side, prefix `VITE_`)
+
+| Variable | Purpose |
+|---|---|
+| `VITE_SUPABASE_URL` | Supabase URL (public) |
+| `VITE_SUPABASE_ANON_KEY` | Supabase anon key (public) |
+| `VITE_GOOGLE_CLIENT_ID` | Google OAuth client ID (for Connect button) |
+
+---
+
+## Local Development
+
+```bash
+npm install
+netlify dev        # Runs Vite + Netlify Functions together on http://localhost:8888
+```
+
+`netlify dev` is required (not `npm run dev`) — the functions need the Netlify dev proxy to resolve env vars and routes.
 
 ### Prerequisites
 
 - Node.js 18+
-- Git
-- **Beads CLI** (`bd`) - [Install Guide](https://github.com/gastownhall/beads)
-
-### Installation
-
-```bash
-# Clone repository
-git clone https://github.com/YOUR-USERNAME/life-organizer.git
-cd life-organizer
-
-# Install dependencies
-npm install
-
-# Validate prerequisites
-npm run check
-
-# Start dev server (Vite + local API server)
-npm start
-```
-
-> **Note:** Use `npm start` — not `npm run dev` (frontend only) and not `npm start dev` (invalid).
-
-### Troubleshooting
-
-**Beads section shows "server offline"**
-
-The local API server failed to start. Check the terminal output for `[server]` lines.
-
-Common causes:
-
-| Symptom | Fix |
-|---|---|
-| `bd not found in PATH` | Ensure Beads is installed and `/bin/zsh` can find it: `which bd` in a zsh terminal |
-| `beads-global not found` | `mkdir ~/beads-global && cd ~/beads-global && bd init` |
-| Port 3001 in use | `lsof -ti:3001 \| xargs kill` then restart |
-| Dependencies missing | `npm install` |
-
-Run `npm run check` to diagnose all prerequisites at once.
-
-**Verify the API server is running:**
-
-```bash
-curl http://localhost:3001/api/health
-# Expected: {"ok":true,"bdPath":"...","bdVersion":"...","bdgDir":"..."}
-```
-
-### Beads is already initialized - view tasks
-
-```bash
-bd ready
-```
-
-### Development Workflow
-
-This project uses **Beads** for task management. Standard workflow:
-
-```bash
-# See what's ready to work on
-bd ready
-
-# View task details
-bd show bd-XXXX
-
-# Claim a task
-bd update bd-XXXX --claim
-
-# Work on the task...
-
-# Close when complete
-bd close bd-XXXX "Completed [description]"
-
-# Remember key insights for future context
-bd remember "FormData works better than controlled inputs for this use case"
-
-# Get full project context (for Claude sessions)
-bd prime
-```
-
-**Never create markdown TODO lists - all tasks go in Beads.**
-
----
-
-## Documentation
-
-### For Developers
-
-- **[Architecture Requirements Document (ARD)](.notes/ARD-life-organizer.md)** - Complete discussion transcript, architecture decisions, technical details
-- **[Implementation Plan](.notes/plan.md)** - Phase-by-phase breakdown with Beads task structure
-
-### For Users (Future)
-
-- User Guide (coming after Phase 3 deployment)
-- API Documentation (if applicable)
-- Troubleshooting Guide
-
----
-
-## Current Status
-
-### Phase 0: Foundation ✅ COMPLETE
-- [x] Repository created
-- [x] Beads initialized
-- [x] Documentation written (ARD + Implementation Plan)
-- [x] .gitignore configured
-- [x] README created (this file)
-
-### Phase 1: Working MVP Artifact 🚧 IN PROGRESS
-- [ ] Fix form input focus issues
-- [ ] Build task dashboard UI
-- [ ] Implement basic recommendation engine
-- [ ] Add calendar event display (mock data)
-- [ ] Implement window.storage persistence
-- [ ] Test in Claude.ai artifact environment
-
-See [Implementation Plan](.notes/plan.md) for full roadmap.
-
----
-
-## Contributing
-
-This is currently a personal project in active development. Once MVP is complete, contribution guidelines will be published.
-
-**If you want to help:**
-1. Check the [Implementation Plan](.notes/plan.md)
-2. Look at `bd ready` output for available tasks
-3. Open an issue to discuss before starting work
-
----
-
-## Beads Integration
-
-This project uses **Beads** for:
-1. **Task Tracking** - All development tasks managed via `bd` CLI
-2. **Feature Integration** - Beads tasks displayed in Life Organizer UI (Phase 2+)
-3. **Project Memory** - `bd remember` captures key insights for future context
-
-**Why Beads?**
-- Git-based version control for tasks
-- Dependency tracking (blocks/blocked_by)
-- AI agent-optimized (JSON output, hash-based IDs)
-- Multi-agent/multi-branch workflow support
-
-Learn more: [Beads GitHub](https://github.com/gastownhall/beads)
+- Netlify CLI: `npm install -g netlify-cli`
+- A `.env.local` file with the variables above (copy from Netlify dashboard)
 
 ---
 
 ## Deployment
 
-### Current (Phase 0-1): Claude.ai Artifact
-Runs in Claude.ai chat interface. No deployment needed.
-
-### Future (Phase 3+): Netlify + Supabase
 ```bash
-# Build
-npm run build
-
-# Deploy to Netlify
-git push origin main  # Auto-deploys via Netlify CI/CD
-
-# Production URL (after Phase 3)
-https://life-organizer.netlify.app
+netlify deploy --prod
 ```
 
----
-
-## Architecture Decisions
-
-### Why MCP-First?
-**Question:** "Isn't this just reinventing AI Tools discovery and creating a really basic Agent?"
-
-**Answer:** Yes! And that's the point. Instead of reinventing:
-- Tool discovery → Use MCP protocol
-- Tool calling → Use MCP clients
-- Custom integrations → Use existing MCP servers
-
-**Result:** 2-4 weeks to MVP instead of 6+ months
-
-### Why Netlify + Supabase?
-- User already has Netlify relationship
-- Both have generous free tiers
-- Best developer experience
-- Can scale to production without rewrite
-
-### Why Read-Only Beads Integration?
-- Preserves existing Beads workflow
-- Adds AI intelligence layer on top
-- Low complexity, low risk
-- Can upgrade to write operations later if needed
-
-See [ARD Decision Log](.notes/ARD-life-organizer.md#decision-log) for complete list.
+Netlify CI/CD also deploys automatically on push to `main`.
 
 ---
 
-## FAQ
+## Database
 
-**Q: Why not just use Google Tasks/Apple Reminders?**  
-A: Life Organizer adds AI-powered time-matching. It doesn't just list tasks - it tells you *when* to do them based on your calendar and context.
+Supabase project: `vmjcqxuxltzskuudfsri` (East US / North Virginia)
 
-**Q: Does this require Claude Pro?**  
-A: Phase 1 (artifact) works in free Claude.ai. Phase 3+ (PWA) uses Anthropic API (separate cost).
+Migrations live in `supabase/migrations/`. Apply with:
 
-**Q: What's the Beads integration about?**  
-A: Beads is a git-based task tracker used for *this project's development*. Life Organizer also integrates with Beads for users who use it. Optional feature.
+```bash
+supabase db push --workdir /path/to/life-organizer --yes
+```
 
-**Q: Why MCP instead of direct API calls?**  
-A: MCP provides standardized protocol for tool calling. One integration pattern works for all services. Future-proof and extensible.
+Requires a Supabase access token: `supabase login` (stores token at `~/.config/supabase/access-token`).
 
-**Q: When will this be production-ready?**  
-A: Target: 4-6 weeks to functional MVP (Phase 1-4 complete). See [Implementation Plan](.notes/plan.md) for timeline.
+### Key tables
 
----
-
-## License
-
-MIT (to be added after MVP complete)
-
----
-
-## Contact
-
-Mo - Engineer at Comcast, TTRPG enthusiast, AI productivity tool builder
-
-Project Link: [https://github.com/YOUR-USERNAME/life-organizer](https://github.com/YOUR-USERNAME/life-organizer)
+| Table | Purpose |
+|---|---|
+| `open_tasks` | Manual tasks with deadline, priority, time estimate |
+| `calendar_snapshot` | 14-day rolling window of events from all calendar sources |
+| `recommendation_history` | Claude recommendation responses + thumbs feedback |
+| `user_preferences` | Google OAuth tokens, iCal feeds, schedule config |
+| `world_state` | Latest snapshot from collect-world-state |
+| `notification_log` | Rules engine fired alerts |
 
 ---
 
-## Acknowledgments
+## Beads Service (Railway)
 
-- **Anthropic Claude** - AI architecture and development assistance
-- **Beads CLI** - Task tracking infrastructure
-- **MCP Protocol** - Modern integration standard
-- **Netlify + Supabase** - Hosting and database infrastructure
+Hosts the `bd` CLI against a beads-global Dolt clone. Endpoints:
+
+- `GET /api/health`
+- `GET /api/beads/ready`
+- `GET /api/beads/list`
+- `GET /api/beads/show/:id`
+- `POST /api/beads/create`
+- `POST /api/beads/claim/:id`
+- `POST /api/beads/close/:id`
+- `GET /api/beads/stats`
+- `POST /api/beads/sync`
+
+Auth: `Authorization: Bearer $BEADS_API_KEY`
 
 ---
 
-**Start here:** Check the [Implementation Plan](.notes/plan.md) and run `bd ready` to see current tasks!
+## Issue Tracking
+
+This project uses [Beads](https://github.com/gastownhall/beads) (`bd` CLI):
+
+```bash
+bd ready              # Available work
+bd show <id>          # Issue details
+bd update <id> --claim
+bd close <id> --reason "..."
+```

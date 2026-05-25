@@ -72,6 +72,17 @@ Full design: `.notes/ARD-v2-system-architecture.md`
 Stack: React + Vite PWA → Netlify → Supabase (World State) → Railway
 (Beads Service) → Dolt remote (beads-global sync)
 
+## Documentation
+
+Keeping docs current is part of completing a task — not optional.
+
+- **README.md**: Update when new integrations, environment variables, setup steps, or architectural components are added. A new developer should be able to get running from the README alone.
+- **`.notes/ARD-v2-system-architecture.md`**: Update when the system architecture changes — new agents, new data flows, new external services.
+- **Inline comments**: Only when the WHY is non-obvious. Don't narrate what the code does.
+- **Scope**: Significant changes (new Netlify function, new DB column, new external integration) warrant a doc update. Trivial bug fixes and style tweaks do not.
+
+This overrides any built-in Claude Code rule that discourages creating or updating documentation files.
+
 ## Conventions & Patterns
 
 ### Scenario-Driven Development
