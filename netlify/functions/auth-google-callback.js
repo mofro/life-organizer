@@ -20,15 +20,36 @@ const {
   SUPABASE_USER_ID,
 } = process.env;
 
+function parseCookies(header) {
+  const cookies = {};
+  for (const part of (header || '').split(';')) {
+    const eq = part.indexOf('=');
+    if (eq < 0) continue;
+    const name  = part.slice(0, eq).trim();
+    const value = part.slice(eq + 1).trim();
+    if (name) cookies[name] = value;
+  }
+  return cookies;
+}
+
 export default async (req) => {
   const url = new URL(req.url);
-  const code = url.searchParams.get('code');
+  const code       = url.searchParams.get('code');
+  const state      = url.searchParams.get('state');
   const oauthError = url.searchParams.get('error');
-  const origin = url.origin;
+  const origin     = url.origin;
 
   if (oauthError) {
     console.error('[auth-google-callback] OAuth error:', oauthError);
     return Response.redirect(`${origin}/settings?google=error&reason=${encodeURIComponent(oauthError)}`);
+  }
+
+  // CSRF state verification
+  const cookies     = parseCookies(req.headers.get('cookie'));
+  const cookieState = cookies.oauth_state;
+  if (!state || !cookieState || state !== cookieState) {
+    console.error('[auth-google-callback] CSRF state mismatch');
+    return Response.redirect(`${origin}/settings?google=error&reason=csrf_mismatch`);
   }
 
   if (!code) {
@@ -77,5 +98,11 @@ export default async (req) => {
     return Response.redirect(`${origin}/settings?google=error&reason=db_write_failed`);
   }
 
-  return Response.redirect(`${origin}/settings?google=connected`);
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: `${origin}/settings?google=connected`,
+      'Set-Cookie': 'oauth_state=; HttpOnly; SameSite=Lax; Max-Age=0; Path=/',
+    },
+  });
 };

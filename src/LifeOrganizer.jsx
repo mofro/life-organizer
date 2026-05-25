@@ -1599,21 +1599,15 @@ function useGoogleAuth() {
       .catch(() => setStatus('disconnected'));
   }, []);
 
-  const connect = useCallback(() => {
-    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-    const redirectUri = `${window.location.origin}/.netlify/functions/auth-google-callback`;
-    const scope = [
-      'https://www.googleapis.com/auth/calendar.events', // read + create/update/delete events
-      'https://www.googleapis.com/auth/gmail.readonly',
-    ].join(' ');
-    const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-    authUrl.searchParams.set('client_id', clientId);
-    authUrl.searchParams.set('redirect_uri', redirectUri);
-    authUrl.searchParams.set('response_type', 'code');
-    authUrl.searchParams.set('scope', scope);
-    authUrl.searchParams.set('access_type', 'offline');
-    authUrl.searchParams.set('prompt', 'consent');
-    window.location.href = authUrl.toString();
+  const connect = useCallback(async () => {
+    try {
+      const res = await fetch('/.netlify/functions/auth-google-start');
+      if (!res.ok) { console.error('[useGoogleAuth] auth-google-start failed', res.status); return; }
+      const { url } = await res.json();
+      window.location.href = url;
+    } catch (e) {
+      console.error('[useGoogleAuth] auth-google-start error:', e.message);
+    }
   }, []);
 
   return { status, errorReason, connect };
