@@ -1,11 +1,13 @@
-// Context Reasoner — on-demand Claude recommendations (life-tm6)
+// Context Reasoner — on-demand Claude recommendations (life-tm6, life-jeh, life-b7v)
 //
-// POST (or GET) /.netlify/functions/recommend
+// GET  /.netlify/functions/recommend  → restore last saved recommendation (no Claude call)
+// POST /.netlify/functions/recommend  → generate fresh recommendation (Claude, 30-min cache)
 //
-// Returns a portfolio-shaped recommendation from Claude, based on the current World State.
-// Caches for 30 min when the world state hash (task/issue IDs) hasn't changed.
+// GET response shape:
+//   { focus, queue, overdue, summary, historyId, item_feedback, stale: bool, restored: true }
+//   { emptyState: true }  when no history exists
 //
-// Response shape:
+// POST response shape:
 //   {
 //     focus:   {id, title, source, ..., reason, window?} | null,
 //     queue:   [{id, title, source, ..., reason, window?}],
@@ -145,7 +147,59 @@ function resolveRef(ref, reason, window, openTasks, beadsReady) {
   return null;
 }
 
-export default async () => {
+/**
+ * Aggregate item_feedback from recent history rows and build a prompt section.
+ * Only called on POST path.
+ */
+function buildFeedbackText(feedbackRows, openTasks, beadsReady) {
+  const counts = {};
+  for (const row of feedbackRows ?? []) {
+    for (const fb of (row.item_feedback ?? [])) {
+      if (!fb.ref || !fb.action) continue;
+      if (!counts[fb.ref]) counts[fb.ref] = { dismissed: 0, accepted: 0 };
+      if (fb.action === 'dismissed') counts[fb.ref].dismissed++;
+      if (fb.action === 'accepted')  counts[fb.ref].accepted++;
+    }
+  }
+
+  const titleOf = (ref) => {
+    if (ref.startsWith('task:')) {
+      const id = parseInt(ref.replace('task:', ''), 10);
+      return openTasks.find(t => t.id === id)?.title ?? ref;
+    }
+    if (ref.startsWith('beads:')) {
+      const issueId = ref.replace('beads:', '');
+      return beadsReady.find(b => b.issue_id === issueId)?.title ?? ref;
+    }
+    return ref;
+  };
+
+  const dismissed = Object.entries(counts)
+    .filter(([, c]) => c.dismissed >= 1)
+    .sort(([, a], [, b]) => b.dismissed - a.dismissed);
+  const accepted = Object.entries(counts)
+    .filter(([, c]) => c.accepted >= 2)
+    .sort(([, a], [, b]) => b.accepted - a.accepted);
+
+  if (dismissed.length === 0 && accepted.length === 0) return '';
+
+  const lines = ['PAST FEEDBACK (last 10 sessions):'];
+  if (dismissed.length > 0) {
+    lines.push('  Frequently dismissed — only recommend if deadline is imminent or conditions changed:');
+    for (const [ref, c] of dismissed) {
+      lines.push(`    - ${ref} "${titleOf(ref)}" dismissed:${c.dismissed}x`);
+    }
+  }
+  if (accepted.length > 0) {
+    lines.push('  Accepted — user engaged with these:');
+    for (const [ref, c] of accepted) {
+      lines.push(`    - ${ref} "${titleOf(ref)}" accepted:${c.accepted}x`);
+    }
+  }
+  return lines.join('\n');
+}
+
+export default async (req) => {
   // ── Validate env ────────────────────────────────────────────────────────────
   const missing = ['ANTHROPIC_API_KEY', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_USER_ID']
     .filter(k => !process.env[k]);
@@ -157,6 +211,33 @@ export default async () => {
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
   const userId   = process.env.SUPABASE_USER_ID;
   const now      = new Date();
+
+  // ── GET: restore last saved recommendation (no Claude call) ────────────────
+  const method = req?.method?.toUpperCase() ?? 'POST';
+  if (method === 'GET') {
+    const { data: rows } = await supabase
+      .from('recommendation_history')
+      .select('id,content,item_feedback,created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    const row = rows?.[0];
+    if (!row) return json({ emptyState: true });
+
+    const age = Date.now() - new Date(row.created_at).getTime();
+    return json({
+      focus:         row.content?.focus   ?? null,
+      queue:         row.content?.queue   ?? [],
+      overdue:       row.content?.overdue ?? [],
+      summary:       row.content?.summary ?? null,
+      historyId:     row.id,
+      item_feedback: row.item_feedback    ?? [],
+      stale:         age > CACHE_TTL_MS,
+      restored:      true,
+      cachedAt:      row.created_at,
+    });
+  }
 
   // ── Read world state (all parallel) ────────────────────────────────────────
   const [beadsResult, tasksResult, prefsResult, weightsResult, rejectionsResult] = await Promise.all([
@@ -195,16 +276,26 @@ export default async () => {
   const allWeights       = weightsResult.data  || [];
   const activeRejections = rejectionsResult.data || [];
 
-  // Calendar rows need today's local date string as the lower bound.
-  const localDateStr   = now.toLocaleDateString('en-CA', { timeZone: userTz });
-  const calendarResult = await supabase
-    .from('calendar_snapshot')
-    .select('event_date,events')
-    .eq('user_id', userId)
-    .gte('event_date', localDateStr)
-    .order('event_date', { ascending: true })
-    .limit(7);
-  const calendarRows = calendarResult.data || [];
+  // Calendar rows + recent feedback — both parallel.
+  const localDateStr = now.toLocaleDateString('en-CA', { timeZone: userTz });
+  const [calendarResult, feedbackResult] = await Promise.all([
+    supabase
+      .from('calendar_snapshot')
+      .select('event_date,events')
+      .eq('user_id', userId)
+      .gte('event_date', localDateStr)
+      .order('event_date', { ascending: true })
+      .limit(7),
+    supabase
+      .from('recommendation_history')
+      .select('item_feedback')
+      .eq('user_id', userId)
+      .not('item_feedback', 'eq', '[]')
+      .order('created_at', { ascending: false })
+      .limit(10),
+  ]);
+  const calendarRows  = calendarResult.data  || [];
+  const feedbackRows  = feedbackResult.data  || [];
 
   // ── Seed category_weights on first run ─────────────────────────────────────
   let categoryWeights = dedupWeights(allWeights);
@@ -327,6 +418,8 @@ export default async () => {
     }).join('\n');
   }
 
+  const feedbackText = buildFeedbackText(feedbackRows, openTasks, beadsReady);
+
   const prompt = `You are a personal AI life organizer. Produce a prioritized work portfolio for the user.
 
 Current date/time: ${dateStr} at ${timeStr} (${userTz})
@@ -336,7 +429,7 @@ ${categoryPrioritiesText || '  (none configured)'}
 
 AVAILABLE TIME (next 7 days, ${userTz}):
 ${availabilityText || '  (no schedule configured)'}
-
+${feedbackText ? `\n${feedbackText}\n` : ''}
 OPEN TASKS:
 ${taskLines || '  (none)'}
 
@@ -349,6 +442,7 @@ Rules:
 - overdue: ALL tasks with deadline:OVERDUE — include every one, no window needed.
 - Treat Beads priority as effort-sizing, not scheduling urgency. Use category weight + deadline to determine scheduling slot.
 - When multiple Beads tasks belong to the same Feature, prefer the one that brings the Feature closest to completion.
+- Items dismissed 2+ times recently: only include in focus/queue if deadline is OVERDUE or < 2 days away.
 - reason must be specific and ≤8 words (e.g. "overdue — 3 days late", "open 2h block today", "last task before Feature closes").
 - window: reference a specific block from AVAILABLE TIME (e.g. "10:00-12:00" or "Thu 09:00-11:30"). Omit if unclear.
 
