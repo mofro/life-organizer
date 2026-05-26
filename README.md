@@ -67,6 +67,7 @@ Full design: [`.notes/ARD-v2-system-architecture.md`](.notes/ARD-v2-system-archi
 - **Database:** Supabase (PostgreSQL) — world state, tasks, calendar snapshot, preferences
 - **Beads Service:** Railway — hosts `bd` CLI + beads-global Dolt database
 - **AI:** Anthropic Claude (claude-sonnet-4-6 for recommendations, claude-haiku-4-5-20251001 for intake)
+- **Email:** Resend — transactional email for auth (magic link) and rules engine alerts
 
 ---
 
@@ -84,6 +85,7 @@ Full design: [`.notes/ARD-v2-system-architecture.md`](.notes/ARD-v2-system-archi
 | `BEADS_API_KEY` | Railway auth bearer token |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
+| `RESEND_API_KEY` | Resend API key — used for rules engine alert emails (life-xnb). Also configured in Supabase SMTP settings to route auth emails through Resend (bypasses Supabase's 3 emails/hour free-tier cap). |
 
 ### Vite (client-side, prefix `VITE_`)
 
