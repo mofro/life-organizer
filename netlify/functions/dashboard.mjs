@@ -516,7 +516,7 @@ function renderDetail(i) {
       const bEs = blocker ? effStatus(blocker, closedIds) : 'unknown';
       const bTitle = blocker ? esc(blocker.title) : '(unknown)';
       const linkCls = blocker ? 'style="cursor:pointer;color:var(--accent);text-decoration:underline"' : '';
-      const onClick = blocker ? 'onclick="showDetail(\'' + bid + '\')"' : '';
+      const onClick = blocker ? 'onclick="showDetail(\\'' + bid + '\\')"' : '';
       return '<div style="display:flex;gap:8px;align-items:baseline;margin-bottom:4px;"><span class="status ' + bEs + '" style="flex-shrink:0;">' + bEs + '</span><span class="id">' + bid + '</span><span ' + linkCls + ' ' + onClick + '>' + bTitle + '</span></div>';
     });
     blockedByHtml = '<div class="field"><div class="field-label">Blocked by</div>' + items.join('') + '</div>';
