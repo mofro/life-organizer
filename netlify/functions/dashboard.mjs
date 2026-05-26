@@ -188,32 +188,25 @@ const STORAGE_KEY = 'sb-' + new URL(SUPABASE_URL).hostname.split('.')[0] + '-aut
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 let session = null;
+const PKCE_KEY = 'bdg_pkce_verifier';
 
 function getStoredSession() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; }
 }
+function storeSession(s) { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); }
+function clearSession() { localStorage.removeItem(STORAGE_KEY); session = null; }
+function isExpired(s) { return !s || !s.expires_at || Date.now() / 1000 > s.expires_at - 30; }
 
-function storeSession(s) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+// PKCE helpers — required by Supabase's default magic link flow
+function generateVerifier() {
+  const arr = new Uint8Array(32);
+  crypto.getRandomValues(arr);
+  return btoa(String.fromCharCode(...arr)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
 }
-
-function clearSession() {
-  localStorage.removeItem(STORAGE_KEY);
-  session = null;
-}
-
-function isExpired(s) {
-  return !s || !s.expires_at || Date.now() / 1000 > s.expires_at - 30;
-}
-
-async function exchangeCodeForSession(code) {
-  const res = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=pkce', {
-    method: 'POST',
-    headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ auth_code: code }),
-  });
-  if (!res.ok) throw new Error('Token exchange failed');
-  return res.json();
+async function generateChallenge(verifier) {
+  const data = new TextEncoder().encode(verifier);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
 }
 
 async function refreshSession(s) {
@@ -228,64 +221,68 @@ async function refreshSession(s) {
 
 async function sendMagicLink(email) {
   const redirectTo = window.location.origin + '/dashboard';
+  const verifier = generateVerifier();
+  const challenge = await generateChallenge(verifier);
+  localStorage.setItem(PKCE_KEY, verifier);
   const res = await fetch(SUPABASE_URL + '/auth/v1/otp', {
     method: 'POST',
     headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, create_user: false, redirect_to: redirectTo }),
+    body: JSON.stringify({
+      email, create_user: false, redirect_to: redirectTo,
+      code_challenge: challenge, code_challenge_method: 'S256',
+    }),
   });
   return res.ok;
 }
 
 async function initAuth() {
-  // Handle magic link callback — hash fragment contains access_token or code
-  const hash = window.location.hash;
-  if (hash) {
-    const params = new URLSearchParams(hash.slice(1));
-    const accessToken = params.get('access_token');
-    const refreshToken = params.get('refresh_token');
-    const expiresIn = Number(params.get('expires_in') || 3600);
-    const code = params.get('code');
-
-    if (accessToken) {
-      session = {
-        access_token: accessToken,
-        refresh_token: refreshToken,
-        expires_at: Math.floor(Date.now() / 1000) + expiresIn,
-      };
-      storeSession(session);
-      history.replaceState(null, '', window.location.pathname);
-      showDashboard();
-      return;
-    }
-
-    if (code) {
+  // PKCE callback: Supabase puts ?code=... in the query string
+  const searchParams = new URLSearchParams(window.location.search);
+  const code = searchParams.get('code');
+  if (code) {
+    const verifier = localStorage.getItem(PKCE_KEY);
+    if (verifier) {
       try {
-        session = await exchangeCodeForSession(code);
-        storeSession(session);
-        history.replaceState(null, '', window.location.pathname);
-        showDashboard();
-        return;
+        const res = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=pkce', {
+          method: 'POST',
+          headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ auth_code: code, code_verifier: verifier }),
+        });
+        if (res.ok) {
+          session = await res.json();
+          storeSession(session);
+          localStorage.removeItem(PKCE_KEY);
+          history.replaceState(null, '', window.location.pathname);
+          showDashboard();
+          return;
+        }
       } catch (_) {}
     }
   }
 
-  // Try stored session
-  const stored = getStoredSession();
-  if (stored && !isExpired(stored)) {
-    session = stored;
+  // Implicit flow fallback: Supabase puts #access_token=... in the hash
+  const hashParams = new URLSearchParams(window.location.hash.slice(1));
+  const accessToken = hashParams.get('access_token');
+  if (accessToken) {
+    session = {
+      access_token: accessToken,
+      refresh_token: hashParams.get('refresh_token'),
+      expires_at: Math.floor(Date.now() / 1000) + Number(hashParams.get('expires_in') || 3600),
+    };
+    storeSession(session);
+    history.replaceState(null, '', window.location.pathname);
     showDashboard();
     return;
   }
 
+  // Try stored session
+  const stored = getStoredSession();
+  if (stored && !isExpired(stored)) { session = stored; showDashboard(); return; }
+
   // Try refresh
   if (stored?.refresh_token) {
     const refreshed = await refreshSession(stored);
-    if (refreshed?.access_token) {
-      session = refreshed;
-      storeSession(session);
-      showDashboard();
-      return;
-    }
+    if (refreshed?.access_token) { session = refreshed; storeSession(session); showDashboard(); return; }
   }
 
   showLogin();
