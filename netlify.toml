@@ -21,6 +21,16 @@
   to = "/.netlify/functions/dashboard"
   status = 200
 
+# Supabase OTP strips the path from redirect_to server-side (a Supabase design
+# constraint, not a bug in our code or the SDK). The callback lands on /?code=
+# regardless of what emailRedirectTo contains. This redirect routes it to the
+# dashboard page where the Supabase SDK can exchange the code for a session.
+[[redirects]]
+  from = "/?code=:code"
+  to = "/dashboard?code=:code"
+  status = 302
+  force = true
+
 # SPA: all routes serve index.html
 [[redirects]]
   from = "/*"
