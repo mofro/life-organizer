@@ -30,11 +30,10 @@ build/
 .DS_Store
 Thumbs.db
 
-# Beads (keep the database, ignore temp files and generated exports)
+# Beads (keep the database, ignore temp files)
 .beads/.build/
 .beads/tmp/
 .beads/*.lock
-.beads/issues.jsonl
 
 # Supabase (if using local development)
 .supabase/
