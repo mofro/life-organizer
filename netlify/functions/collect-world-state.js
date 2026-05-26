@@ -2,11 +2,14 @@
 // Triggered by: app open, manual refresh (Dolt hook trigger: life-43k, deferred).
 //
 // What it does:
-//   1. Fetch ready Beads issues from the Railway Beads Service
+//   1. Fetch ALL open (non-closed) Beads issues from the Railway Beads Service
 //   2. Replace beads_ready rows in Supabase with the fresh snapshot
 //   3. Read open_tasks from Supabase
 //   4. Compute derived fields (overdue, due today, due this week)
 //   5. Return assembled world state to the caller
+//
+// Note: fetches ALL non-closed issues (open, in_progress, blocked) — not just
+// unblocked "ready" ones. The UI is a status board, not a claim queue.
 //
 // Env vars required (set in Netlify dashboard → Environment variables):
 //   BEADS_SERVICE_URL       Railway Beads Service base URL
@@ -68,50 +71,47 @@ export default async () => {
     console.warn('[collect-world-state] Railway sync unreachable (proceeding with stale data):', e.message);
   }
 
-  // ── Step 1b: Fetch all open issues to build feature→task reverse map ────────
-  // bd list --json includes full dependencies[].depends_on_id for each issue.
-  // We filter to features, then invert: taskId → { featureId, title, priority }.
-  // Non-fatal: if this call fails, parent_feature_* columns are stored as null.
+  // ── Step 1b: Fetch all open issues ──────────────────────────────────────────
+  // Returns open + in_progress + blocked — everything non-closed.
+  // Also builds two derived maps in one pass:
+  //   taskToFeature: taskId → parent feature metadata (for hierarchy grouping)
+  //   blockedByMap:  issueId → [dep ids that are still open] (for status display)
   let taskToFeature = {};
+  let blockedByMap  = {};
   try {
     const listRes = await fetch(`${BEADS_SERVICE_URL}/api/beads/list?status=open`, {
       headers: beadsHeaders,
       signal: AbortSignal.timeout(10_000),
     });
-    if (listRes.ok) {
-      const allOpen = await listRes.json();
-      for (const issue of allOpen) {
-        if (issue.issue_type !== 'feature') continue;
-        for (const dep of (issue.dependencies || [])) {
-          const tid = dep.depends_on_id;
-          const existing = taskToFeature[tid];
-          // If a task has multiple parent features, pick the one with the lowest
-          // priority number (highest urgency) — mirrors dashboard.py primaryDisplayParent.
-          if (!existing || issue.priority < existing.parent_priority) {
-            taskToFeature[tid] = {
-              parent_feature_id:    issue.id,
-              parent_feature_title: issue.title,
-              parent_priority:      typeof issue.priority === 'number' ? issue.priority : null,
-            };
-          }
+    if (!listRes.ok) throw new Error(`Beads list returned HTTP ${listRes.status}`);
+
+    const allOpen = await listRes.json();
+    const openIds = new Set(allOpen.map(i => i.id));
+
+    for (const issue of allOpen) {
+      // Build blocked_by: deps whose own issue is still open
+      const openDeps = (issue.dependencies || [])
+        .map(d => d.depends_on_id)
+        .filter(id => openIds.has(id));
+      if (openDeps.length) blockedByMap[issue.id] = openDeps;
+
+      // Build feature→task reverse map
+      if (issue.issue_type !== 'feature') continue;
+      for (const dep of (issue.dependencies || [])) {
+        const tid = dep.depends_on_id;
+        const existing = taskToFeature[tid];
+        if (!existing || issue.priority < existing.parent_priority) {
+          taskToFeature[tid] = {
+            parent_feature_id:    issue.id,
+            parent_feature_title: issue.title,
+            parent_priority:      typeof issue.priority === 'number' ? issue.priority : null,
+          };
         }
       }
-      console.log(`[collect-world-state] Built feature map from ${allOpen.length} open issues`);
-    } else {
-      console.warn(`[collect-world-state] Feature list returned HTTP ${listRes.status} — parent feature fields will be null`);
     }
-  } catch (e) {
-    console.warn('[collect-world-state] Feature list fetch failed (parent feature fields will be null):', e.message);
-  }
 
-  try {
-    const res = await fetch(`${BEADS_SERVICE_URL}/api/beads/ready`, {
-      headers: beadsHeaders,
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) throw new Error(`Beads Service returned HTTP ${res.status}`);
-    freshIssues = await res.json();
-    console.log(`[collect-world-state] Fetched ${freshIssues.length} ready issues from Beads Service`);
+    freshIssues = allOpen;
+    console.log(`[collect-world-state] Fetched ${freshIssues.length} open issues from Beads Service`);
   } catch (e) {
     beadsError = e.message;
     console.error('[collect-world-state] Beads fetch failed:', e.message);
@@ -136,7 +136,7 @@ export default async () => {
         issue_id:   issue.id,
         title:      issue.title,
         priority:   typeof issue.priority === 'number' ? issue.priority : null,
-        blocked_by: issue.blocked_by || [],
+        blocked_by: blockedByMap[issue.id] || [],
         status:     issue.status     || null,
         issue_type: issue.issue_type || null,
         synced_at:  now.toISOString(),
