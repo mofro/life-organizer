@@ -5,18 +5,6 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Life Organizer</title>
-    <!-- Supabase auth callback: redirect to dashboard before React initializes.
-         The service worker intercepts /?code= and serves index.html; this script
-         immediately forwards to /dashboard so the SDK can exchange the code. -->
-    <script>
-      (function() {
-        var s = window.location.search;
-        if (s.indexOf('code=') !== -1) {
-          window.location.replace('/dashboard' + s);
-          return;
-        }
-      })();
-    </script>
     <!-- Prevent flash of wrong theme: apply dark class before React hydrates -->
     <script>
       (function() {

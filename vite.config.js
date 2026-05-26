@@ -24,8 +24,10 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         navigateFallback: 'index.html',
-        // Exclude Netlify functions and the dashboard route from SW intercept
-        navigateFallbackDenylist: [/^\/\.netlify\//, /^\/dashboard/],
+        // Exclude Netlify functions, dashboard, and Supabase auth callbacks from SW intercept.
+        // Workbox matches against pathname+search, so /[?&]code=/ catches /?code=xxx
+        // and lets Netlify's redirect rule route it to /dashboard?code=xxx.
+        navigateFallbackDenylist: [/^\/\.netlify\//, /^\/dashboard/, /[?&]code=/],
         runtimeCaching: [],
       },
     }),
