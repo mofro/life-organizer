@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useWorldState } from './useWorldState.js';
 import { useRulesEngine } from './useRulesEngine.js';
 import { useDarkMode } from './useDarkMode.js';
+import { apiFetch } from './supabase.js';
 
 // Re-assign 'today'/'tomorrow' from startISO using the browser's local date,
 // then discard events outside that window. Falls back to the server date field
@@ -39,7 +40,7 @@ function useCalendarSync() {
 
   const sync = useCallback(async () => {
     try {
-      const res  = await fetch('/.netlify/functions/calendar-sync');
+      const res  = await apiFetch('/.netlify/functions/calendar-sync');
       const data = await res.json();
       setConnected(data.connected ?? false);
       setEvents(rebucketByLocalDate(data.events ?? []));
@@ -63,7 +64,7 @@ function useICalSync() {
 
   const sync = useCallback(async () => {
     try {
-      const res  = await fetch('/.netlify/functions/ical-sync');
+      const res  = await apiFetch('/.netlify/functions/ical-sync');
       const data = await res.json();
       setConnected(data.connected ?? false);
       setEvents(rebucketByLocalDate(data.events ?? []));
@@ -86,7 +87,7 @@ function useICalFeeds(onFeedsChange) {
   const [saveMsg, setSaveMsg] = useState(null); // null | 'added' | 'removed' | 'error'
 
   useEffect(() => {
-    fetch('/.netlify/functions/ical-feeds')
+    apiFetch('/.netlify/functions/ical-feeds')
       .then(r => r.json())
       .then(d => { if (Array.isArray(d.feeds)) setFeeds(d.feeds); })
       .catch(() => {});
@@ -96,7 +97,7 @@ function useICalFeeds(onFeedsChange) {
     setSaving(true);
     setSaveMsg(null);
     try {
-      const res  = await fetch('/.netlify/functions/ical-feeds', {
+      const res  = await apiFetch('/.netlify/functions/ical-feeds', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
       });
@@ -116,7 +117,7 @@ function useICalFeeds(onFeedsChange) {
     setSaving(true);
     setSaveMsg(null);
     try {
-      const res  = await fetch('/.netlify/functions/ical-feeds', {
+      const res  = await apiFetch('/.netlify/functions/ical-feeds', {
         method: 'DELETE', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
       });
@@ -188,7 +189,7 @@ function useClaudeRecommendations() {
   useEffect(() => {
     (async () => {
       try {
-        const res  = await fetch('/.netlify/functions/recommend');
+        const res  = await apiFetch('/.netlify/functions/recommend');
         const data = await res.json();
         if (res.ok) applyData(data);
       } catch {
@@ -205,7 +206,7 @@ function useClaudeRecommendations() {
     setError(null);
     setEmptyState(false);
     try {
-      const res  = await fetch('/.netlify/functions/recommend', { method: 'POST' });
+      const res  = await apiFetch('/.netlify/functions/recommend', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       applyData(data);
@@ -220,7 +221,7 @@ function useClaudeRecommendations() {
   const dismiss = useCallback((ref, histId) => {
     setDismissed(prev => new Set([...prev, ref]));
     if (!histId) return;
-    fetch('/.netlify/functions/recommendations', {
+    apiFetch('/.netlify/functions/recommendations', {
       method:  'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ historyId: histId, ref, action: 'dismissed' }),
@@ -230,7 +231,7 @@ function useClaudeRecommendations() {
   // accept(ref): send PATCH feedback fire-and-forget (no visual change).
   const accept = useCallback((ref, histId) => {
     if (!histId) return;
-    fetch('/.netlify/functions/recommendations', {
+    apiFetch('/.netlify/functions/recommendations', {
       method:  'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ historyId: histId, ref, action: 'accepted' }),
@@ -257,7 +258,7 @@ function useTasks() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('/.netlify/functions/tasks');
+        const res = await apiFetch('/.netlify/functions/tasks');
         const { tasks: remote = [] } = await res.json();
 
         if (remote.length === 0) {
@@ -268,7 +269,7 @@ function useTasks() {
           if (local.length > 0) {
             const migrated = (await Promise.all(
               local.map(t =>
-                fetch('/.netlify/functions/tasks', {
+                apiFetch('/.netlify/functions/tasks', {
                   method:  'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body:    JSON.stringify(t),
@@ -301,7 +302,7 @@ function useTasks() {
     const tempId = formTask.id ?? Date.now();
     setTasks(prev => [{ ...formTask, id: tempId }, ...prev]);
     try {
-      const res  = await fetch('/.netlify/functions/tasks', {
+      const res  = await apiFetch('/.netlify/functions/tasks', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify(formTask),
@@ -317,7 +318,7 @@ function useTasks() {
   const updateStatus = useCallback(async (id, status) => {
     setTasks(prev => prev.map(t => t.id === id ? { ...t, status } : t));
     try {
-      await fetch(`/.netlify/functions/tasks?id=${id}`, {
+      await apiFetch(`/.netlify/functions/tasks?id=${id}`, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ status }),
@@ -330,7 +331,7 @@ function useTasks() {
   const deleteTask = useCallback(async (id) => {
     setTasks(prev => prev.filter(t => t.id !== id));
     try {
-      await fetch(`/.netlify/functions/tasks?id=${id}`, { method: 'DELETE' });
+      await apiFetch(`/.netlify/functions/tasks?id=${id}`, { method: 'DELETE' });
     } catch (e) {
       console.error('[tasks] deleteTask sync failed:', e);
     }
@@ -339,7 +340,7 @@ function useTasks() {
   const completeTask = useCallback(async (id) => {
     setTasks(prev => prev.map(t => t.id === id ? { ...t, status: 'completed' } : t));
     try {
-      await fetch(`/.netlify/functions/tasks?id=${id}`, {
+      await apiFetch(`/.netlify/functions/tasks?id=${id}`, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ status: 'completed' }),
@@ -353,7 +354,7 @@ function useTasks() {
   // Returns the calendarEventUrl on success so TaskRow can show a badge immediately.
   const scheduleTask = useCallback(async (id) => {
     try {
-      const res  = await fetch('/.netlify/functions/schedule-task', {
+      const res  = await apiFetch('/.netlify/functions/schedule-task', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ taskId: id }),
@@ -690,7 +691,7 @@ function useIntake() {
     setError(null);
     setResult(null);
     try {
-      const res = await fetch('/.netlify/functions/intake', {
+      const res = await apiFetch('/.netlify/functions/intake', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, source, context, project: project || undefined }),
@@ -798,7 +799,7 @@ function ConversationIntakeResult({ result, onReset }) {
             source:   'intake',
           };
 
-      const res  = await fetch(url, {
+      const res  = await apiFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -1466,7 +1467,7 @@ function BeadsTaskRow({ task }) {
     if (next && !detail) {
       setDetailLoading(true);
       try {
-        const res = await window.fetch(`/.netlify/functions/beads-show?id=${task.beadsId}`);
+        const res = await apiFetch(`/.netlify/functions/beads-show?id=${task.beadsId}`);
         if (res.ok) setDetail(await res.json());
       } catch {}
       setDetailLoading(false);
@@ -1593,7 +1594,7 @@ function useGoogleAuth() {
     }
 
     // Check DB status on mount
-    fetch('/.netlify/functions/auth-google-status')
+    apiFetch('/.netlify/functions/auth-google-status')
       .then(r => r.json())
       .then(d => setStatus(d.connected ? 'connected' : 'disconnected'))
       .catch(() => setStatus('disconnected'));
@@ -1601,7 +1602,7 @@ function useGoogleAuth() {
 
   const connect = useCallback(async () => {
     try {
-      const res = await fetch('/.netlify/functions/auth-google-start');
+      const res = await apiFetch('/.netlify/functions/auth-google-start');
       if (!res.ok) { console.error('[useGoogleAuth] auth-google-start failed', res.status); return; }
       const { url } = await res.json();
       window.location.href = url;
