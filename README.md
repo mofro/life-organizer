@@ -68,6 +68,7 @@ Full design: [`.notes/ARD-v2-system-architecture.md`](.notes/ARD-v2-system-archi
 - **Beads Service:** Railway — hosts `bd` CLI + beads-global Dolt database
 - **AI:** Anthropic Claude (claude-sonnet-4-6 for recommendations, claude-haiku-4-5-20251001 for intake)
 - **Email:** Resend — transactional email for auth (magic link) and rules engine alerts
+- **CDN dependency:** `@supabase/supabase-js@2` loaded at runtime from `https://esm.sh` in the `/dashboard` SPA. Not bundled — loaded from CDN so the dashboard function (which serves plain HTML) can use the SDK without a build step. `script-src` CSP includes `https://esm.sh`.
 
 ---
 

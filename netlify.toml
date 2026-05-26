@@ -21,15 +21,6 @@
   to = "/.netlify/functions/dashboard"
   status = 200
 
-# Supabase PKCE magic link strips the path from redirect_to and sends ?code=
-# to the origin root. Catch it here and forward to /dashboard before the SPA
-# catch-all swallows it.
-[[redirects]]
-  from = "/?code=:code"
-  to = "/dashboard?code=:code"
-  status = 302
-  force = true
-
 # SPA: all routes serve index.html
 [[redirects]]
   from = "/*"
@@ -43,7 +34,7 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"
-    Content-Security-Policy = "default-src 'self'; connect-src 'self' https://*.supabase.co https://accounts.google.com; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; frame-ancestors 'none'"
+    Content-Security-Policy = "default-src 'self'; connect-src 'self' https://*.supabase.co https://accounts.google.com; script-src 'self' 'unsafe-inline' https://esm.sh; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; frame-ancestors 'none'"
 
 [[headers]]
   for = "/sw.js"

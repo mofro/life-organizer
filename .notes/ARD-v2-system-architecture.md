@@ -575,12 +575,13 @@ trade-offs on demand.
 **Decision:** Host the beads-global read-only dashboard at `/dashboard` within the existing life-organizer Netlify project rather than a separate deploy.
 **Rationale:** The life-organizer Netlify project already has Supabase auth, the correct env vars, and a working function runtime. Creating a second Netlify project solely for a dashboard adds operational overhead with no benefit. The dashboard is purely additive — two new functions (`beads-issues`, `beads-issue`) and one function serving the HTML (`dashboard`); no existing life-organizer code changes.
 **Data source:** DoltHub SQL API (`https://www.dolthub.com/api/v1alpha1/mofro/beads-global/main`) — public repo, no token required. The Netlify functions act as an auth-gated proxy; the browser never contacts DoltHub directly.
+**Auth:** Supabase magic link via the official `@supabase/supabase-js` SDK loaded from `https://esm.sh`. The SDK is loaded at runtime from CDN (not bundled); this is an explicit architectural decision — the SDK handles PKCE flow, session refresh, and URL-based callback detection correctly without ad-hoc maintenance. Dependency documented in README. The CSP `script-src` directive includes `https://esm.sh` to allow this.
 **Ownership:** Feature owned by `beads-global` (issue `beads-global-o8w`); code lives in `life-organizer` repo as hosting infrastructure.
 **Status:** Approved 2026-05-26.
 
 ---
 
-### Decision 11: Intake Layer as a First-Class Architectural Concern
+### Decision 12a: Intake Layer as a First-Class Architectural Concern
 
 **Date:** 2026-05-17
 **Decision:** Email, corporate signals, and conversations are first-class input channels,
