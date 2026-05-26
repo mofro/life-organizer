@@ -15,6 +15,12 @@
   command = "npm run dev"
   targetPort = 5173
 
+# beads-global dashboard — served by function so env vars can be injected
+[[redirects]]
+  from = "/dashboard"
+  to = "/.netlify/functions/dashboard"
+  status = 200
+
 # SPA: all routes serve index.html
 [[redirects]]
   from = "/*"

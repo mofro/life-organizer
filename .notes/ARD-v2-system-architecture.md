@@ -569,6 +569,15 @@ trade-offs on demand.
 - Pure rules without AI (can't parse email, can't learn, can't explain reasoning)
 **Status:** Approved 2026-05-17.
 
+### Decision 11: Shared Netlify Hosting for the bdg Dashboard
+
+**Date:** 2026-05-26
+**Decision:** Host the beads-global read-only dashboard at `/dashboard` within the existing life-organizer Netlify project rather than a separate deploy.
+**Rationale:** The life-organizer Netlify project already has Supabase auth, the correct env vars, and a working function runtime. Creating a second Netlify project solely for a dashboard adds operational overhead with no benefit. The dashboard is purely additive — two new functions (`beads-issues`, `beads-issue`) and one function serving the HTML (`dashboard`); no existing life-organizer code changes.
+**Data source:** DoltHub SQL API (`https://www.dolthub.com/api/v1alpha1/mofro/beads-global/main`) — public repo, no token required. The Netlify functions act as an auth-gated proxy; the browser never contacts DoltHub directly.
+**Ownership:** Feature owned by `beads-global` (issue `beads-global-o8w`); code lives in `life-organizer` repo as hosting infrastructure.
+**Status:** Approved 2026-05-26.
+
 ---
 
 ### Decision 11: Intake Layer as a First-Class Architectural Concern
