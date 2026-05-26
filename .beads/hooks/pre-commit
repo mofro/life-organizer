@@ -20,10 +20,14 @@ def load_jsonl(text):
             pass
     return issues
 
-r = subprocess.run(['git', 'show', ':0:.beads/issues.jsonl'], capture_output=True, text=True)
-if r.returncode != 0:
+import os
+_root = subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True).stdout.strip()
+_jsonl = os.path.join(_root, '.beads', 'issues.jsonl')
+try:
+    with open(_jsonl) as _f:
+        staged = load_jsonl(_f.read())
+except FileNotFoundError:
     sys.exit(0)
-staged = load_jsonl(r.stdout)
 
 r2 = subprocess.run(['git', 'show', 'HEAD:.beads/issues.jsonl'], capture_output=True, text=True)
 head = load_jsonl(r2.stdout) if r2.returncode == 0 else {}
