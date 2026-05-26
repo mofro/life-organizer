@@ -1043,13 +1043,23 @@ function TaskForm({ onAdd }) {
     const title = data.get('title')?.trim();
     if (!title) return;
 
+    const dateVal = data.get('deadline');
+    const timeVal = data.get('dueTime');
+    let deadline = null;
+    if (dateVal) {
+      const [year, month, day] = dateVal.split('-').map(Number);
+      const [hours, minutes]   = timeVal ? timeVal.split(':').map(Number) : [0, 0];
+      // Construct in local time so timezone offset is applied correctly on .toISOString()
+      deadline = new Date(year, month - 1, day, hours, minutes).toISOString();
+    }
+
     onAdd({
       id: Date.now(),
       title,
       category: data.get('category') || 'general',
       priority: data.get('priority') || 'medium',
       timeRequired: parseInt(data.get('timeRequired')) || null,
-      deadline: data.get('deadline') || null,
+      deadline,
       status: 'pending',
       source: 'manual',
       sourceUrl: null,
@@ -1090,11 +1100,18 @@ function TaskForm({ onAdd }) {
           min="1"
           className="border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
         />
-        <input
-          name="deadline"
-          type="date"
-          className="border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
-        />
+        <div className="flex gap-1">
+          <input
+            name="deadline"
+            type="date"
+            className="flex-1 min-w-0 border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+          />
+          <input
+            name="dueTime"
+            type="time"
+            className="w-[7rem] border border-gray-200 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+          />
+        </div>
       </div>
       <button
         type="submit"
@@ -1145,11 +1162,17 @@ function TaskRow({ task, onStatusChange, onDelete, onSchedule }) {
           <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${priorityBadge[task.priority]}`}>{task.priority}</span>
           <span className="text-xs text-gray-400 dark:text-gray-500">{task.category}</span>
           {task.timeRequired && <span className="text-xs text-gray-400 dark:text-gray-500">{task.timeRequired >= 60 ? `${Math.round(task.timeRequired / 60)}h` : `${task.timeRequired}m`}</span>}
-          {task.deadline && (
-            <span className={`text-xs ${isOverdue ? 'text-red-500 font-medium' : 'text-gray-400'}`}>
-              {isOverdue ? 'overdue · ' : ''}{new Date(task.deadline).toLocaleDateString()}
-            </span>
-          )}
+          {task.deadline && (() => {
+            const d = new Date(task.deadline);
+            const hasTime = d.getHours() !== 0 || d.getMinutes() !== 0;
+            return (
+              <span className={`text-xs ${isOverdue ? 'text-red-500 font-medium' : 'text-gray-400'}`}>
+                {isOverdue ? 'overdue · ' : ''}
+                {d.toLocaleDateString()}
+                {hasTime && ` · ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+              </span>
+            );
+          })()}
           <SourceBadge source={task.source || 'manual'} sourceUrl={task.sourceUrl} />
 
           {/* Calendar scheduling — only for active tasks */}

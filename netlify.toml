@@ -15,6 +15,23 @@
   command = "npm run dev"
   targetPort = 5173
 
+# beads-global dashboard — served by function so env vars can be injected
+[[redirects]]
+  from = "/dashboard"
+  to = "/.netlify/functions/dashboard"
+  status = 200
+
+# Supabase OTP strips the path from redirect_to server-side. The callback lands
+# on /?code= regardless of what emailRedirectTo contains. The `query` field is
+# the correct Netlify syntax for matching on query parameters; embedding query
+# strings in `from` is silently ignored by Netlify's redirect engine.
+[[redirects]]
+  from = "/"
+  query = {code = ":code"}
+  to = "/dashboard?code=:code"
+  status = 302
+  force = true
+
 # SPA: all routes serve index.html
 [[redirects]]
   from = "/*"
@@ -28,7 +45,7 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"
-    Content-Security-Policy = "default-src 'self'; connect-src 'self' https://*.supabase.co https://accounts.google.com; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; frame-ancestors 'none'"
+    Content-Security-Policy = "default-src 'self'; connect-src 'self' https://*.supabase.co https://accounts.google.com; script-src 'self' 'unsafe-inline' https://esm.sh; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; frame-ancestors 'none'"
 
 [[headers]]
   for = "/sw.js"
