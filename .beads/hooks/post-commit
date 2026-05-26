@@ -12,7 +12,14 @@ COLLECTOR_URL="https://life-organizer-mo.netlify.app/.netlify/functions/collect-
 DEBOUNCE_SECONDS=30
 STAMP_FILE="$HOME/.beads-hook-last"
 
-# Debounce check
+# Always sync to DoltHub on every commit — debounce only gates the Netlify call.
+# Chain: project .beads/ → bd repo sync → ~/beads-global → bd dolt push → DoltHub
+BGG_DIR="$HOME/beads-global"
+if [ -d "$BGG_DIR" ]; then
+  (cd "$BGG_DIR" && bd repo sync > /dev/null 2>&1 && bd dolt push > /dev/null 2>&1) &
+fi
+
+# Debounce the Netlify call — don't hammer collect-world-state during a busy session
 LAST=$(cat "$STAMP_FILE" 2>/dev/null || echo 0)
 NOW=$(date +%s)
 if [ $((NOW - LAST)) -lt $DEBOUNCE_SECONDS ]; then
@@ -20,17 +27,9 @@ if [ $((NOW - LAST)) -lt $DEBOUNCE_SECONDS ]; then
 fi
 echo "$NOW" > "$STAMP_FILE"
 
-# Skip silently if no API key — don't block the bd operation
+# Skip silently if no API key
 if [ -z "$BEADS_API_KEY" ]; then
   exit 0
-fi
-
-# Push project changes through the full chain before calling Netlify.
-# Without this, Railway syncs from DoltHub before the local changes arrive there.
-# Chain: project .beads/ → bd repo sync → ~/beads-global → bd dolt push → DoltHub
-BGG_DIR="$HOME/beads-global"
-if [ -d "$BGG_DIR" ]; then
-  (cd "$BGG_DIR" && bd repo sync > /dev/null 2>&1 && bd dolt push > /dev/null 2>&1)
 fi
 
 # Now DoltHub is current — Railway pull will get correct data
