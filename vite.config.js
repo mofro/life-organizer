@@ -24,8 +24,8 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         navigateFallback: 'index.html',
-        // Exclude Netlify functions and API routes from SW navigation intercept
-        navigateFallbackDenylist: [/^\/\.netlify\//],
+        // Exclude Netlify functions and the dashboard route from SW intercept
+        navigateFallbackDenylist: [/^\/\.netlify\//, /^\/dashboard/],
         runtimeCaching: [],
       },
     }),
