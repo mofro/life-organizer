@@ -227,10 +227,11 @@ async function refreshSession(s) {
 }
 
 async function sendMagicLink(email) {
+  const redirectTo = window.location.origin + '/dashboard';
   const res = await fetch(SUPABASE_URL + '/auth/v1/otp', {
     method: 'POST',
     headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, create_user: false }),
+    body: JSON.stringify({ email, create_user: false, redirect_to: redirectTo }),
   });
   return res.ok;
 }
