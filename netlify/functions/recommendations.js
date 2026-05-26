@@ -10,6 +10,7 @@
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_USER_ID
 
 import { createClient } from '@supabase/supabase-js';
+import { extractUserId } from '../lib/auth.js';
 
 const VALID_ACTIONS = ['accepted', 'dismissed', 'deferred'];
 
@@ -21,13 +22,17 @@ function json(data, status = 200) {
 }
 
 export default async (req) => {
-  const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_USER_ID } = process.env;
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !SUPABASE_USER_ID) {
+  const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     return json({ error: 'Missing server configuration' }, 500);
   }
 
   const method = req.method?.toUpperCase();
   if (method !== 'PATCH') return json({ error: 'method not allowed' }, 405);
+
+  let userId;
+  try { userId = await extractUserId(req); }
+  catch { return json({ error: 'Unauthorized' }, 401); }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -46,7 +51,7 @@ export default async (req) => {
     .from('recommendation_history')
     .select('item_feedback')
     .eq('id', historyId)
-    .eq('user_id', SUPABASE_USER_ID)
+    .eq('user_id', userId)
     .single();
 
   if (fetchErr || !row) return json({ error: 'not found' }, 404);
@@ -60,7 +65,7 @@ export default async (req) => {
     .from('recommendation_history')
     .update({ item_feedback: newFeedback })
     .eq('id', historyId)
-    .eq('user_id', SUPABASE_USER_ID);
+    .eq('user_id', userId);
 
   if (updateErr) return json({ error: updateErr.message }, 500);
   return json({ ok: true });

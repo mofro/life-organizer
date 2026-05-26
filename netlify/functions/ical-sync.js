@@ -12,8 +12,9 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { syncICal }     from '../lib/calendarSyncLogic.js';
+import { extractUserId } from '../lib/auth.js';
 
-const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_USER_ID } = process.env;
+const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -25,9 +26,13 @@ function json(data, status = 200) {
 export default async (req) => {
   if (req.method !== 'GET') return json({ error: 'Method not allowed' }, 405);
 
+  let userId;
+  try { userId = await extractUserId(req); }
+  catch { return json({ error: 'Unauthorized' }, 401); }
+
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-  const result = await syncICal(supabase, SUPABASE_USER_ID);
+  const result = await syncICal(supabase, userId);
 
   if (!result.connected) return json({ connected: false, events: [] });
   if (result.error)      return json({ connected: true, error: result.error, events: [] });

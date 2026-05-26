@@ -10,6 +10,8 @@
 // Env vars required:
 //   BEADS_SERVICE_URL, BEADS_API_KEY
 
+import { extractUserId } from '../lib/auth.js';
+
 const BEADS_SERVICE_URL = process.env.BEADS_SERVICE_URL;
 const BEADS_API_KEY     = process.env.BEADS_API_KEY;
 
@@ -22,6 +24,10 @@ function json(data, status = 200) {
 
 export default async (req) => {
   if (req.method?.toUpperCase() !== 'POST') return json({ error: 'method not allowed' }, 405);
+
+  try { await extractUserId(req); }
+  catch { return json({ error: 'Unauthorized' }, 401); }
+
   if (!BEADS_SERVICE_URL) return json({ error: 'BEADS_SERVICE_URL not configured' }, 503);
 
   let body = {};
@@ -43,12 +49,13 @@ export default async (req) => {
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      return json({ error: data.error || `Railway returned ${res.status}` }, res.status);
+      console.error(`[beads-create] Railway error ${res.status}:`, data);
+      return json({ error: 'upstream error' }, res.status);
     }
 
     return json(data, 201);
   } catch (e) {
     console.error('[beads-create] Railway call failed:', e.message);
-    return json({ error: e.message }, 503);
+    return json({ error: 'upstream error' }, 503);
   }
 };

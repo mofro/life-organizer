@@ -30,6 +30,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { computeFreeBlocks } from '../lib/freeBlocks.js';
+import { extractUserId } from '../lib/auth.js';
 
 const CACHE_TTL_MS = 30 * 60 * 1000;
 const MODEL        = 'claude-haiku-4-5-20251001';
@@ -201,15 +202,18 @@ function buildFeedbackText(feedbackRows, openTasks, beadsReady) {
 
 export default async (req) => {
   // ── Validate env ────────────────────────────────────────────────────────────
-  const missing = ['ANTHROPIC_API_KEY', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_USER_ID']
+  const missing = ['ANTHROPIC_API_KEY', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']
     .filter(k => !process.env[k]);
   if (missing.length) {
     console.error('[recommend] Missing env vars:', missing.join(', '));
     return json({ error: `Missing configuration: ${missing.join(', ')}` }, 500);
   }
 
+  let userId;
+  try { userId = await extractUserId(req); }
+  catch { return json({ error: 'Unauthorized' }, 401); }
+
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-  const userId   = process.env.SUPABASE_USER_ID;
   const now      = new Date();
 
   // ── GET: restore last saved recommendation (no Claude call) ────────────────

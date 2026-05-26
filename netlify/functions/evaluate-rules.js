@@ -22,12 +22,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { computeFreeBlocks } from '../lib/freeBlocks.js';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-);
-const USER_ID = process.env.SUPABASE_USER_ID;
+import { extractUserId } from '../lib/auth.js';
 
 // ─── Condition evaluators ────────────────────────────────────────────────────
 // Each returns an array of match objects: { title, body, payload, channel }
@@ -184,16 +179,21 @@ const EVALUATORS = {
 
 // ─── Main handler ────────────────────────────────────────────────────────────
 
-export default async () => {
-  if (!USER_ID) {
-    return json(500, { error: 'SUPABASE_USER_ID not configured' });
-  }
+export default async (req) => {
+  let userId;
+  try { userId = await extractUserId(req); }
+  catch { return json(401, { error: 'Unauthorized' }); }
+
+  const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+  );
 
   // 1. Load enabled rules
   const { data: rules, error: rulesErr } = await supabase
     .from('rules')
     .select('*')
-    .eq('user_id', USER_ID)
+    .eq('user_id', userId)
     .is('deprecated_at', null);
   if (rulesErr) return json(500, { error: rulesErr.message });
   if (!rules?.length) return json(200, { fired: [], evaluated_at: new Date().toISOString() });
@@ -216,10 +216,10 @@ export default async () => {
       .gte('event_date', today).lte('event_date', tomorrow),
     supabase.from('user_preferences')
       .select('timezone,weekly_schedule,schedule_exceptions,planning_window')
-      .eq('user_id', USER_ID).single(),
+      .eq('user_id', userId).single(),
     supabase.from('block_rejections')
       .select('day_of_week,start_time,end_time,released_at')
-      .eq('user_id', USER_ID).is('released_at', null),
+      .eq('user_id', userId).is('released_at', null),
   ]);
 
   const prefs  = prefsData ?? {};
@@ -243,7 +243,7 @@ export default async () => {
     const { data: prevLog } = await supabase
       .from('notification_log')
       .select('payload')
-      .eq('user_id', USER_ID)
+      .eq('user_id', userId)
       .eq('rule_id', issueUnblockedRule.id);
     alreadyNotifiedIssueIds = new Set(
       (prevLog ?? []).map(n => n.payload?.issue_id).filter(Boolean),
@@ -264,7 +264,7 @@ export default async () => {
       const { data: recentLog } = await supabase
         .from('notification_log')
         .select('id')
-        .eq('user_id', USER_ID)
+        .eq('user_id', userId)
         .eq('rule_id', rule.id)
         .gte('fired_at', cooldownStart)
         .limit(1);
@@ -283,7 +283,7 @@ export default async () => {
     for (const match of matches) {
       for (const ch of channels) {
         toInsert.push({
-          user_id:  USER_ID,
+          user_id:  userId,
           rule_id:  rule.id,
           channel:  ch,
           title:    match.title,

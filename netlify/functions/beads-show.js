@@ -9,10 +9,20 @@
 // Returns: the raw issue object from Railway (title, description, notes, etc.)
 // Errors:  { error: "..." } with appropriate HTTP status
 
+import { extractUserId } from '../lib/auth.js';
+
 const BEADS_SERVICE_URL = process.env.BEADS_SERVICE_URL;
 const BEADS_API_KEY     = process.env.BEADS_API_KEY;
 
 export default async (req) => {
+  try { await extractUserId(req); }
+  catch {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   const url = new URL(req.url);
   const id  = url.searchParams.get('id');
 
@@ -42,7 +52,8 @@ export default async (req) => {
     const body = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      return new Response(JSON.stringify({ error: body.error || `Railway returned ${res.status}` }), {
+      console.error(`[beads-show] Railway error ${res.status}:`, body);
+      return new Response(JSON.stringify({ error: 'upstream error' }), {
         status: res.status,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -53,7 +64,8 @@ export default async (req) => {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (e) {
-    return new Response(JSON.stringify({ error: e.message }), {
+    console.error('[beads-show] Railway call failed:', e.message);
+    return new Response(JSON.stringify({ error: 'upstream error' }), {
       status: 503,
       headers: { 'Content-Type': 'application/json' },
     });

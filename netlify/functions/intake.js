@@ -12,6 +12,7 @@
 //   ANTHROPIC_API_KEY
 
 import Anthropic from '@anthropic-ai/sdk';
+import { extractUserId } from '../lib/auth.js';
 
 const MAX_CHARS = 100_000; // ~25k tokens — conservative for a single haiku extraction call
 
@@ -50,6 +51,9 @@ export default async (req) => {
   const { ANTHROPIC_API_KEY } = process.env;
   if (!ANTHROPIC_API_KEY) return json({ error: 'Missing configuration' }, 500);
   if (req.method?.toUpperCase() !== 'POST') return json({ error: 'method not allowed' }, 405);
+
+  try { await extractUserId(req); }
+  catch { return json({ error: 'Unauthorized' }, 401); }
 
   let body = {};
   try { body = await req.json(); } catch { /* empty body */ }

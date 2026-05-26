@@ -18,6 +18,7 @@
 // `npm run dev` proxies /api to the local Express server but not /.netlify/functions.
 
 import { useState, useEffect, useCallback } from 'react';
+import { apiFetch } from './supabase.js';
 
 const COLLECTOR_URL = '/.netlify/functions/collect-world-state';
 
@@ -77,7 +78,7 @@ export function useWorldState() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(COLLECTOR_URL);
+      const res = await apiFetch(COLLECTOR_URL);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `HTTP ${res.status}`);
