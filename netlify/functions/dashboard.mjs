@@ -52,7 +52,7 @@ const HTML = (supabaseUrl, supabaseAnonKey) => `<!doctype html>
   .header-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   header h1 { margin: 0; font-size: 14px; font-weight: 600; color: var(--accent); white-space: nowrap; }
   header input, header select, header button { background: var(--bg); border: 1px solid var(--border); color: var(--fg); padding: 6px 10px; border-radius: 6px; font-size: 13px; font-family: inherit; }
-  header input { flex: 1; min-width: 160px; }
+  header input { flex: 1; min-width: 160px; max-width: 380px; }
   header button { cursor: pointer; }
   header button:hover { border-color: var(--accent); }
   .meta-info { color: var(--muted); font-size: 12px; margin-left: auto; }
