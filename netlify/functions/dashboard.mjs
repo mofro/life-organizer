@@ -128,6 +128,26 @@ const HTML = (supabaseUrl, supabaseAnonKey) => `<!doctype html>
   .tree-connector { color: var(--muted); font-family: ui-monospace, "SF Mono", Menlo, monospace; user-select: none; margin-right: 2px; }
   .sign-out { font-size: 12px; color: var(--muted); background: none; border: 1px solid var(--border); padding: 4px 8px; border-radius: 4px; cursor: pointer; }
   .sign-out:hover { color: var(--fg); border-color: var(--accent); }
+
+  @media (max-width: 640px) {
+    body.detail-open .detail {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      min-width: unset;
+      border-left: none;
+      z-index: 50;
+      overflow-y: auto;
+      padding: 14px 16px 24px;
+    }
+    thead th:nth-child(1), tbody td:nth-child(1),
+    thead th:nth-child(2), tbody td:nth-child(2),
+    thead th:nth-child(6), tbody td:nth-child(6) { display: none; }
+    tbody td { padding: 12px; }
+    tbody td.t { max-width: unset; }
+    header input, header select, header button { padding: 10px 12px; min-height: 44px; }
+  }
 </style>
 </head>
 <body>
@@ -398,9 +418,9 @@ function render() {
   list.innerHTML = '<table><thead><tr>' +
     header('Source', 'id', 'width:90px;') +
     header('ID', 'id', 'width:130px;') +
-    header('Title', 'title') +
-    header('Status', 'status', 'width:120px;') +
     header('Pri', 'priority', 'width:60px;') +
+    header('Status', 'status', 'width:120px;') +
+    header('Title', 'title') +
     header('Updated', 'updated_at', 'width:100px;') +
     '</tr></thead><tbody>' + bodyHtml + '</tbody></table>';
   list.querySelectorAll('tbody tr[data-id]').forEach(tr => tr.addEventListener('click', () => showDetail(tr.dataset.id)));
@@ -418,9 +438,9 @@ function row(i, closedIds, extraClass='', indent=0, connector='') {
   return '<tr data-id="' + i.id + '" class="' + cls + '">' +
     '<td><span class="src">' + srcOf(i.id) + '</span></td>' +
     '<td><span class="id">' + i.id + '</span></td>' +
-    '<td class="t"><div style="padding-left:' + indent + 'px;">' + connector + typeBadge(i) + esc(i.title) + staleBadge(i) + '</div></td>' +
-    '<td><span class="status ' + es + '">' + es + '</span></td>' +
     '<td><span class="pri pri-' + i.priority + '">P' + i.priority + '</span></td>' +
+    '<td><span class="status ' + es + '">' + es + '</span></td>' +
+    '<td class="t"><div style="padding-left:' + indent + 'px;">' + connector + typeBadge(i) + esc(i.title) + staleBadge(i) + '</div></td>' +
     '<td class="status" title="' + (i.updated_at||'') + '">' + fmtDate(i.updated_at) + '</td>' +
     '</tr>';
 }
@@ -496,11 +516,11 @@ function closeDetail() {
   detail.innerHTML = '';
 }
 
-function collapsibleField(label, raw) {
+function collapsibleField(label, raw, startOpen = false) {
   const has = raw && String(raw).trim().length > 0;
   const body = has ? '<div class="content">' + linkify(esc(raw)) + '</div>' : '<div class="content empty-field">(none)</div>';
   const tag = has ? '' : '<span class="summary-tag">empty</span>';
-  return '<details class="field"><summary>' + label + tag + '</summary>' + body + '</details>';
+  return '<details class="field"' + (startOpen && has ? ' open' : '') + '><summary>' + label + tag + '</summary>' + body + '</details>';
 }
 
 function renderDetail(i) {
@@ -525,7 +545,7 @@ function renderDetail(i) {
     '<div class="head"><span class="src">' + srcOf(i.id) + '</span><span class="id">' + i.id + '</span><span class="status ' + es + '">' + es + '</span><span class="pri pri-' + i.priority + '">P' + i.priority + '</span><span style="color:var(--muted);font-size:12px;">' + itype + '</span></div>' +
     blockedByHtml +
     (i.external_ref ? '<div class="field"><div class="field-label">External ref</div><div>' + esc(i.external_ref) + '</div></div>' : '') +
-    collapsibleField('Description', i.description) +
+    collapsibleField('Description', i.description, true) +
     collapsibleField('Notes', i.notes) +
     '<div class="field"><div class="field-label">Updated</div><div>' + fmtDate(i.updated_at) + ' <span style="color:var(--muted)">(' + (i.updated_at||'') + ')</span></div></div>' +
     (i.owner ? '<div class="field"><div class="field-label">Owner</div><div>' + esc(i.owner) + '</div></div>' : '');
