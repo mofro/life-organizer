@@ -1,18 +1,27 @@
-// beads-show — proxy for GET /api/beads/show/:id on the Railway Beads Service.
+// beads-show — returns full issue detail from DoltHub for the expand panel.
 //
 // Called by BeadsTaskRow when a user expands an issue to see its description,
-// notes, design, and acceptance criteria. The BEADS_API_KEY is kept server-side
-// here and never exposed to the browser.
+// notes, design, and acceptance criteria.
+//
+// Uses the DoltHub REST API directly (same as beads-issue.mjs) — no Railway
+// dependency for reads. The DoltHub repo is public so no auth is needed there.
 //
 // Usage: GET /.netlify/functions/beads-show?id=life-xqz
-//
-// Returns: the raw issue object from Railway (title, description, notes, etc.)
-// Errors:  { error: "..." } with appropriate HTTP status
+// Returns: { id, title, description, notes, design, acceptance, external_ref, ... }
 
 import { extractUserId } from '../lib/auth.js';
 
-const BEADS_SERVICE_URL = process.env.BEADS_SERVICE_URL;
-const BEADS_API_KEY     = process.env.BEADS_API_KEY;
+const DOLTHUB_API = 'https://www.dolthub.com/api/v1alpha1/mofro/beads-global/main';
+
+async function doltQuery(sql) {
+  const res = await fetch(`${DOLTHUB_API}?q=${encodeURIComponent(sql)}`);
+  if (!res.ok) throw new Error(`DoltHub error: ${res.status}`);
+  const body = await res.json();
+  if (body.query_execution_status !== 'Success') {
+    throw new Error(`DoltHub query failed: ${body.query_execution_message}`);
+  }
+  return body.rows;
+}
 
 export default async (req) => {
   try { await extractUserId(req); }
@@ -24,7 +33,7 @@ export default async (req) => {
   }
 
   const url = new URL(req.url);
-  const id  = url.searchParams.get('id');
+  const id  = url.searchParams.get('id') ?? '';
 
   if (!id) {
     return new Response(JSON.stringify({ error: 'id query parameter is required' }), {
@@ -33,40 +42,57 @@ export default async (req) => {
     });
   }
 
-  if (!BEADS_SERVICE_URL) {
-    return new Response(JSON.stringify({ error: 'BEADS_SERVICE_URL not configured' }), {
-      status: 503,
+  // Allowlist: only alphanumeric and hyphens — safe for SQL interpolation
+  if (!/^[a-zA-Z0-9-]+$/.test(id)) {
+    return new Response(JSON.stringify({ error: 'Invalid issue id' }), {
+      status: 400,
       headers: { 'Content-Type': 'application/json' },
     });
   }
 
   try {
-    const headers = {};
-    if (BEADS_API_KEY) headers['Authorization'] = `Bearer ${BEADS_API_KEY}`;
+    const [issueRows, depRows] = await Promise.all([
+      doltQuery(`
+        SELECT id, title, description, notes, design, acceptance_criteria,
+               external_ref, status, priority, issue_type, owner, updated_at
+        FROM issues
+        WHERE id = '${id}'
+        LIMIT 1
+      `),
+      doltQuery(`
+        SELECT issue_id, depends_on_id
+        FROM dependencies
+        WHERE issue_id = '${id}'
+      `),
+    ]);
 
-    const res = await fetch(
-      `${BEADS_SERVICE_URL}/api/beads/show/${encodeURIComponent(id)}`,
-      { headers, signal: AbortSignal.timeout(10_000) },
-    );
-
-    const body = await res.json().catch(() => ({}));
-
-    if (!res.ok) {
-      console.error(`[beads-show] Railway error ${res.status}:`, body);
-      return new Response(JSON.stringify({ error: 'upstream error' }), {
-        status: res.status,
+    if (!issueRows.length) {
+      return new Response(JSON.stringify({ error: 'Not found' }), {
+        status: 404,
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
-    return new Response(JSON.stringify(body), {
+    const row = issueRows[0];
+    const issue = {
+      ...row,
+      priority:    Number(row.priority),
+      acceptance:  row.acceptance_criteria || null,  // UI uses `acceptance`
+      dependencies: depRows.map(d => ({ depends_on_id: d.depends_on_id })),
+    };
+    delete issue.acceptance_criteria;
+
+    return new Response(JSON.stringify(issue), {
       status: 200,
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
+      },
     });
   } catch (e) {
-    console.error('[beads-show] Railway call failed:', e.message);
-    return new Response(JSON.stringify({ error: 'upstream error' }), {
-      status: 503,
+    console.error('[beads-show] DoltHub call failed:', e.message);
+    return new Response(JSON.stringify({ error: e.message }), {
+      status: 500,
       headers: { 'Content-Type': 'application/json' },
     });
   }
