@@ -6,7 +6,7 @@ import { resolve } from 'path';
 import { existsSync } from 'fs';
 
 // BEADS_DIR env var overrides the default.
-// On Railway: set BEADS_DIR=/app (the project root, which ships with .beads/ in the image).
+// On Railway: set BEADS_DIR=/app — start.sh bootstraps .beads/ there on first boot.
 // Locally: leave unset to use ~/beads-global as before.
 const BDG_DIR = process.env.BEADS_DIR || resolve(homedir(), 'beads-global');
 const PORT = process.env.PORT || 3001;
@@ -88,7 +88,15 @@ app.use((req, res, next) => {
 });
 
 // GET /api/health
+// Also checks that the Dolt database is accessible, so Railway restarts
+// the container if bootstrap failed (rather than routing to a broken service).
 app.get('/api/health', (_req, res) => {
+  const DB_PATH = resolve(BDG_DIR, '.beads', 'embeddeddolt');
+  const dbOk = existsSync(DB_PATH);
+  if (!dbOk) {
+    console.error(`[health] Dolt DB missing at ${DB_PATH} — returning 503`);
+    return res.status(503).json({ ok: false, error: 'database not ready' });
+  }
   res.json({ ok: true, bdVersion: BD_VERSION });
 });
 

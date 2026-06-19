@@ -83,7 +83,7 @@ export default async (req) => {
   let taskToFeature = {};
   let blockedByMap  = {};
   try {
-    const listRes = await fetch(`${BEADS_SERVICE_URL}/api/beads/list?status=open`, {
+    const listRes = await fetch(`${BEADS_SERVICE_URL}/api/beads/list`, {
       headers: beadsHeaders,
       signal: AbortSignal.timeout(10_000),
     });
