@@ -42,7 +42,7 @@ console.log(`[server] beads-global: ${BDG_DIR}`);
 
 // Beads IDs follow the pattern <prefix>-<alphanumeric>, e.g. life-wut, life-abc123.
 function validateId(id) {
-  if (typeof id !== 'string' || !/^[a-z][a-z0-9]*-[a-z0-9]+$/.test(id)) {
+  if (typeof id !== 'string' || !/^[a-zA-Z][a-zA-Z0-9-]+-[a-zA-Z0-9]+$/.test(id)) {
     const err = new Error('Invalid issue ID');
     err.status = 400;
     throw err;

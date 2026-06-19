@@ -1553,7 +1553,7 @@ function BeadsTaskRow({ task }) {
               )}
             </>
           ) : (
-            <p className="text-xs text-gray-400">Could not load details — is the local server running?</p>
+            <p className="text-xs text-gray-400">Could not load details.</p>
           )}
 
           {/* Terminal command helpers — copy to clipboard, run locally via bdg */}
