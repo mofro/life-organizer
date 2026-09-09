@@ -44,14 +44,13 @@ echo "[start] $(bd --version)"
 
 cd "$BD_DIR" 2>/dev/null || (mkdir -p "$BD_DIR" && cd "$BD_DIR")
 
+# Always write sync.remote so bd dolt pull works on every boot, not just first boot.
+mkdir -p "$BD_DIR/.beads"
+printf 'sync.remote: "%s"\n' "$DOLT_REMOTE" > "$BD_DIR/.beads/config.yaml"
+
 if [ ! -d "$DOLT_DATA" ]; then
   # ---- First boot: bootstrap from DoltHub ----
   echo "[start] No Dolt DB found — bootstrapping from DoltHub..."
-
-  # Write a minimal config.yaml so bd bootstrap knows where to clone from.
-  # sync.remote is the key bd bootstrap checks first.
-  mkdir -p "$BD_DIR/.beads"
-  printf 'sync.remote: "%s"\n' "$DOLT_REMOTE" > "$BD_DIR/.beads/config.yaml"
 
   if bd bootstrap --yes 2>&1; then
     echo "[start] Bootstrap succeeded — Dolt DB cloned from DoltHub."
@@ -64,7 +63,7 @@ else
   # ---- Subsequent boots: pull updates ----
   echo "[start] Dolt DB found — pulling updates from DoltHub..."
 
-  if bd dolt pull origin 2>&1; then
+  if bd dolt pull 2>&1; then
     echo "[start] Pull succeeded — data is current."
   else
     echo "[start] WARNING: Pull failed. Running with existing data." >&2

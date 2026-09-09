@@ -102,7 +102,7 @@ app.get('/api/health', (_req, res) => {
 
 // POST /api/beads/sync — pull latest data from DoltHub remote.
 app.post('/api/beads/sync', (_req, res) => {
-  const result = spawnSync('bd', ['dolt', 'pull', 'origin'], {
+  const result = spawnSync('bd', ['dolt', 'pull'], {
     cwd: BDG_DIR,
     encoding: 'utf8',
   });
