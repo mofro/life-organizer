@@ -159,10 +159,18 @@ app.get('/api/beads/show/:id', (req, res) => {
   }
 });
 
+// Pull latest from DoltHub before a write so Railway's local DB is current.
+// Non-fatal — if pull fails we proceed anyway (write will fail if issue truly doesn't exist).
+function pullBeforeWrite(label) {
+  const pull = spawnSync('bd', ['dolt', 'pull'], { cwd: BDG_DIR, encoding: 'utf8' });
+  if (pull.status !== 0) console.warn(`[server] bd dolt pull before ${label} failed:`, (pull.stderr || '').trim());
+}
+
 // POST /api/beads/claim/:id
 app.post('/api/beads/claim/:id', (req, res) => {
   try {
     validateId(req.params.id);
+    pullBeforeWrite('claim');
     const result = spawnSync('bd', ['update', req.params.id, '--claim'], {
       cwd: BDG_DIR,
       encoding: 'utf8',
@@ -171,7 +179,6 @@ app.post('/api/beads/claim/:id', (req, res) => {
       console.error('[server] bd claim error:', (result.stderr || '').trim());
       return res.status(500).json({ error: 'internal error' });
     }
-    // Push to DoltHub so collect-world-state reads the update on next refresh
     const push = spawnSync('bd', ['dolt', 'push'], { cwd: BDG_DIR, encoding: 'utf8' });
     if (push.status !== 0) console.warn('[server] bd dolt push after claim failed:', (push.stderr || '').trim());
     res.json({ ok: true });
@@ -187,6 +194,7 @@ app.post('/api/beads/close/:id', (req, res) => {
   if (!reason) return res.status(400).json({ error: 'reason is required' });
   try {
     validateId(req.params.id);
+    pullBeforeWrite('close');
     const result = spawnSync('bd', ['close', req.params.id, '--reason', reason], {
       cwd: BDG_DIR,
       encoding: 'utf8',
@@ -195,7 +203,6 @@ app.post('/api/beads/close/:id', (req, res) => {
       console.error('[server] bd close error:', (result.stderr || '').trim());
       return res.status(500).json({ error: 'internal error' });
     }
-    // Push to DoltHub so collect-world-state reads the update on next refresh
     const push = spawnSync('bd', ['dolt', 'push'], { cwd: BDG_DIR, encoding: 'utf8' });
     if (push.status !== 0) console.warn('[server] bd dolt push after close failed:', (push.stderr || '').trim());
     res.json({ ok: true });
