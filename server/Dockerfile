@@ -24,6 +24,7 @@ RUN curl -L https://github.com/dolthub/dolt/releases/latest/download/install.sh 
 # Install bd (beads) CLI for Linux via npm
 # The @beads/bd package ships a Linux x64 binary; this is the production
 # equivalent of the macOS arm64 binary installed by Homebrew locally.
+# Pinned to 1.0.3 — local bd is 1.0.3 (schema v32); upgrade together deliberately.
 RUN npm install -g @beads/bd@1.0.3
 
 WORKDIR /app
