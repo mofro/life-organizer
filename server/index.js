@@ -5,10 +5,9 @@ import { homedir } from 'os';
 import { resolve } from 'path';
 import { existsSync } from 'fs';
 
-// BEADS_DIR env var overrides the default.
-// On Railway: set BEADS_DIR=/app — start.sh bootstraps .beads/ there on first boot.
-// Locally: leave unset to use ~/beads-global as before.
-const BDG_DIR = process.env.BEADS_DIR || resolve(homedir(), 'beads-global');
+// BEADS_GLOBAL_DIR points to the beads-global workspace (all projects).
+// BEADS_DIR is the life-organizer project dir (set to /app on Railway) — kept separate.
+const BDG_DIR = process.env.BEADS_GLOBAL_DIR || process.env.BEADS_DIR || resolve(homedir(), 'beads-global');
 const PORT = process.env.PORT || 3001;
 
 // BEADS_API_KEY — optional but strongly recommended in production.
@@ -159,27 +158,20 @@ app.get('/api/beads/show/:id', (req, res) => {
   }
 });
 
-// Pull latest from DoltHub before a write so Railway's local DB is current.
-// Non-fatal — if pull fails we proceed anyway (write will fail if issue truly doesn't exist).
-function pullBeforeWrite(label) {
-  const pull = spawnSync('bd', ['dolt', 'pull'], { cwd: BDG_DIR, encoding: 'utf8' });
-  if (pull.status !== 0) console.warn(`[server] bd dolt pull before ${label} failed stdout=${(pull.stdout || '').trim()} stderr=${(pull.stderr || '').trim()}`);
-}
-
 // POST /api/beads/claim/:id
 app.post('/api/beads/claim/:id', (req, res) => {
   try {
     validateId(req.params.id);
-    pullBeforeWrite('claim');
     const result = spawnSync('bd', ['update', req.params.id, '--claim'], {
       cwd: BDG_DIR,
       encoding: 'utf8',
+      timeout: 15_000,
     });
     if (result.status !== 0) {
       console.error('[server] bd claim error stdout=%s stderr=%s', (result.stdout || '').trim(), (result.stderr || '').trim());
       return res.status(500).json({ error: 'internal error' });
     }
-    const push = spawnSync('bd', ['dolt', 'push'], { cwd: BDG_DIR, encoding: 'utf8' });
+    const push = spawnSync('bd', ['dolt', 'push'], { cwd: BDG_DIR, encoding: 'utf8', timeout: 15_000 });
     if (push.status !== 0) console.warn('[server] bd dolt push after claim failed stdout=%s stderr=%s', (push.stdout || '').trim(), (push.stderr || '').trim());
     res.json({ ok: true });
   } catch (e) {
@@ -194,16 +186,16 @@ app.post('/api/beads/close/:id', (req, res) => {
   if (!reason) return res.status(400).json({ error: 'reason is required' });
   try {
     validateId(req.params.id);
-    pullBeforeWrite('close');
     const result = spawnSync('bd', ['close', req.params.id, '--reason', reason], {
       cwd: BDG_DIR,
       encoding: 'utf8',
+      timeout: 15_000,
     });
     if (result.status !== 0) {
       console.error('[server] bd close error stdout=%s stderr=%s', (result.stdout || '').trim(), (result.stderr || '').trim());
       return res.status(500).json({ error: 'internal error' });
     }
-    const push = spawnSync('bd', ['dolt', 'push'], { cwd: BDG_DIR, encoding: 'utf8' });
+    const push = spawnSync('bd', ['dolt', 'push'], { cwd: BDG_DIR, encoding: 'utf8', timeout: 15_000 });
     if (push.status !== 0) console.warn('[server] bd dolt push after close failed stdout=%s stderr=%s', (push.stdout || '').trim(), (push.stderr || '').trim());
     res.json({ ok: true });
   } catch (e) {

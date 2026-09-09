@@ -31,7 +31,7 @@
 # Upgrade both together: bump here + run BD_ALLOW_REMOTE_MIGRATE=1 bd migrate locally + bd dolt push.
 BD_VERSION="${BD_VERSION:-1.0.3}"
 
-BD_DIR="${BEADS_DIR:-/root/beads-global}"
+BD_DIR="/root/beads-global"
 DOLT_DATA="$BD_DIR/.beads/embeddeddolt"
 DOLT_REMOTE="${DOLT_REMOTE_URL:-https://doltremoteapi.dolthub.com/mofro/beads-global}"
 
@@ -42,11 +42,20 @@ echo "[start] Installing bd@${BD_VERSION}..."
 npm install -g "@beads/bd@${BD_VERSION}" 2>&1 || { echo "[start] FATAL: bd install failed"; exit 1; }
 echo "[start] $(bd --version)"
 
-cd "$BD_DIR" 2>/dev/null || (mkdir -p "$BD_DIR" && cd "$BD_DIR")
+mkdir -p "$BD_DIR"
+cd "$BD_DIR"
 
-# Always write sync.remote so bd dolt pull works on every boot, not just first boot.
+# bd requires a git repo at the workspace root.
+git init -q 2>/dev/null || true
+
+# Seed the project structure that bd bootstrap requires.
+# metadata.json and .local_version identify this as an existing beads project so
+# bootstrap knows to clone (not init). config.yaml provides the remote URL.
 mkdir -p "$BD_DIR/.beads"
-printf 'sync.remote: "%s"\n' "$DOLT_REMOTE" > "$BD_DIR/.beads/config.yaml"
+printf 'sync.remote: "%s"\nrepos:\n  primary: "."\n' "$DOLT_REMOTE" > "$BD_DIR/.beads/config.yaml"
+printf '{"database":"dolt","backend":"dolt","dolt_mode":"embedded","dolt_database":"beads_global","project_id":"b0352ec7-8533-4def-ba5a-8cdb8d23417d"}' \
+  > "$BD_DIR/.beads/metadata.json"
+printf '%s' "$BD_VERSION" > "$BD_DIR/.beads/.local_version"
 
 if [ ! -d "$DOLT_DATA" ]; then
   # ---- First boot: bootstrap from DoltHub ----
@@ -68,6 +77,21 @@ else
   else
     echo "[start] WARNING: Pull failed. Running with existing data." >&2
   fi
+fi
+
+# Configure DoltHub push credentials from the JWK private key stored in Railway.
+# DOLT_CREDS_JWK must contain the full JSON contents of the local
+# ~/.dolt/creds/c43netvcttrpl3cb6unpblme88iihvt3h8ktse350l5dk.jwk file.
+DOLT_CREDS_HASH="c43netvcttrpl3cb6unpblme88iihvt3h8ktse350l5dk"
+if [ -n "$DOLT_CREDS_JWK" ]; then
+  mkdir -p /root/.dolt/creds
+  printf '%s' "$DOLT_CREDS_JWK" > "/root/.dolt/creds/${DOLT_CREDS_HASH}.jwk"
+  dolt config --global --set user.name mofro
+  dolt config --global --set user.email g.mofro@gmail.com
+  dolt config --global --set user.creds "$DOLT_CREDS_HASH"
+  echo "[start] DoltHub credentials configured."
+else
+  echo "[start] WARNING: DOLT_CREDS_JWK not set — dolt push will fail." >&2
 fi
 
 echo "[start] Launching Beads Service..."
