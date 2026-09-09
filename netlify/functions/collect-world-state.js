@@ -1,29 +1,26 @@
-// Context Collector v1 — Netlify Function
-// Triggered by: app open, manual refresh (Dolt hook trigger: life-43k, deferred).
+// Context Collector v2 — Netlify Function
+// Triggered by: app open, manual refresh.
 //
 // What it does:
-//   1. Fetch ALL open (non-closed) Beads issues from the Railway Beads Service
+//   1. Fetch ALL non-closed Beads issues directly from DoltHub SQL API
 //   2. Replace beads_ready rows in Supabase with the fresh snapshot
 //   3. Read open_tasks from Supabase
 //   4. Compute derived fields (overdue, due today, due this week)
 //   5. Return assembled world state to the caller
 //
-// Note: fetches ALL non-closed issues (open, in_progress, blocked) — not just
-// unblocked "ready" ones. The UI is a status board, not a claim queue.
+// Note: fetches ALL non-closed issues (open, in_progress, blocked, deferred) —
+// not just unblocked "ready" ones. The UI is a status board, not a claim queue.
 //
-// Env vars required (set in Netlify dashboard → Environment variables):
-//   BEADS_SERVICE_URL       Railway Beads Service base URL
-//   BEADS_API_KEY           Shared secret for Railway auth
-//   SUPABASE_URL            Supabase project URL
-//   SUPABASE_SERVICE_ROLE_KEY  Service role key (server-side only — never expose to client)
-//   userId        UUID of the single user (single-user system, v1)
+// Env vars required:
+//   SUPABASE_URL              Supabase project URL
+//   SUPABASE_SERVICE_ROLE_KEY Service role key (server-side only)
 
 import { createClient } from '@supabase/supabase-js';
 import { extractUserId } from '../lib/auth.js';
 
+const DOLTHUB_API = 'https://www.dolthub.com/api/v1alpha1/mofro/beads-global/main';
+
 const {
-  BEADS_SERVICE_URL,
-  BEADS_API_KEY,
   SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY,
 } = process.env;
@@ -35,9 +32,19 @@ function json(data, status = 200) {
   });
 }
 
+async function doltQuery(sql) {
+  const url = `${DOLTHUB_API}?q=${encodeURIComponent(sql)}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+  if (!res.ok) throw new Error(`DoltHub error: ${res.status}`);
+  const body = await res.json();
+  if (body.query_execution_status !== 'Success') {
+    throw new Error(`DoltHub query failed: ${body.query_execution_message}`);
+  }
+  return body.rows;
+}
+
 export default async (req) => {
-  // Validate environment
-  const missing = ['BEADS_SERVICE_URL', 'BEADS_API_KEY', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']
+  const missing = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']
     .filter(k => !process.env[k]);
   if (missing.length) {
     console.error('[collect-world-state] Missing env vars:', missing.join(', '));
@@ -51,74 +58,76 @@ export default async (req) => {
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   const now = new Date();
 
-  // ── Step 1: Sync Railway from DoltHub, then fetch ready issues ───────────────
-  // POST /api/beads/sync triggers bd dolt pull on Railway so it has the latest
-  // data from DoltHub before we ask for the ready list.
-  // Failure is non-fatal: we proceed with whatever data Railway currently has.
-  let freshIssues = [];
-  let beadsError = null;
-  const beadsHeaders = { Authorization: `Bearer ${BEADS_API_KEY}` };
-
-  try {
-    const syncRes = await fetch(`${BEADS_SERVICE_URL}/api/beads/sync`, {
-      method: 'POST',
-      headers: beadsHeaders,
-      signal: AbortSignal.timeout(15_000),  // pull can take a few seconds
-    });
-    const syncBody = await syncRes.json().catch(() => ({}));
-    if (syncBody.ok) {
-      console.log(`[collect-world-state] Railway synced from DoltHub at ${syncBody.syncedAt}`);
-    } else {
-      console.warn('[collect-world-state] Railway sync failed (proceeding with stale data):', syncBody.error);
-    }
-  } catch (e) {
-    console.warn('[collect-world-state] Railway sync unreachable (proceeding with stale data):', e.message);
-  }
-
-  // ── Step 1b: Fetch all open issues ──────────────────────────────────────────
-  // Returns open + in_progress + blocked — everything non-closed.
-  // Also builds two derived maps in one pass:
+  // ── Step 1: Fetch all non-closed issues from DoltHub ──────────────────────
+  // Reads directly from DoltHub SQL API — no Railway sync step needed because
+  // DoltHub is the remote source of truth (not a local copy that can be stale).
+  // Builds two derived maps in one pass:
   //   taskToFeature: taskId → parent feature metadata (for hierarchy grouping)
   //   blockedByMap:  issueId → [dep ids that are still open] (for status display)
+  let freshIssues = [];
+  let beadsError = null;
   let taskToFeature = {};
   let blockedByMap  = {};
-  try {
-    const listRes = await fetch(`${BEADS_SERVICE_URL}/api/beads/list`, {
-      headers: beadsHeaders,
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!listRes.ok) throw new Error(`Beads list returned HTTP ${listRes.status}`);
 
-    const allOpen = await listRes.json();
+  try {
+    const [issueRows, depRows] = await Promise.all([
+      doltQuery(`
+        SELECT id, title, status, priority, issue_type, updated_at, created_at, source_repo
+        FROM issues
+        WHERE status != 'closed'
+        ORDER BY priority ASC, updated_at DESC
+        LIMIT 2000
+      `),
+      doltQuery(`
+        SELECT issue_id, depends_on_id
+        FROM dependencies
+        LIMIT 5000
+      `),
+    ]);
+
+    // Normalise priority to number once
+    const allOpen = issueRows.map(i => ({
+      ...i,
+      priority: i.priority != null ? Number(i.priority) : null,
+      dependencies: [],
+    }));
+
     const openIds = new Set(allOpen.map(i => i.id));
 
+    // Attach deps to each issue and build the two derived maps
+    const depsByIssue = {};
+    for (const d of depRows) {
+      if (!depsByIssue[d.issue_id]) depsByIssue[d.issue_id] = [];
+      depsByIssue[d.issue_id].push(d.depends_on_id);
+    }
+
     for (const issue of allOpen) {
-      // Build blocked_by: deps whose own issue is still open
-      const openDeps = (issue.dependencies || [])
-        .map(d => d.depends_on_id)
-        .filter(id => openIds.has(id));
+      const deps = depsByIssue[issue.id] || [];
+      issue.dependencies = deps.map(id => ({ depends_on_id: id }));
+
+      // blocked_by: deps whose own issue is still open
+      const openDeps = deps.filter(id => openIds.has(id));
       if (openDeps.length) blockedByMap[issue.id] = openDeps;
 
-      // Build feature→task reverse map
+      // feature → task reverse map (for parent feature context on tasks)
       if (issue.issue_type !== 'feature') continue;
-      for (const dep of (issue.dependencies || [])) {
-        const tid = dep.depends_on_id;
-        const existing = taskToFeature[tid];
+      for (const depId of deps) {
+        const existing = taskToFeature[depId];
         if (!existing || issue.priority < existing.parent_priority) {
-          taskToFeature[tid] = {
+          taskToFeature[depId] = {
             parent_feature_id:    issue.id,
             parent_feature_title: issue.title,
-            parent_priority:      typeof issue.priority === 'number' ? issue.priority : null,
+            parent_priority:      issue.priority,
           };
         }
       }
     }
 
     freshIssues = allOpen;
-    console.log(`[collect-world-state] Fetched ${freshIssues.length} open issues from Beads Service`);
+    console.log(`[collect-world-state] Fetched ${freshIssues.length} open issues from DoltHub`);
   } catch (e) {
     beadsError = e.message;
-    console.error('[collect-world-state] Beads fetch failed:', e.message);
+    console.error('[collect-world-state] DoltHub fetch failed:', e.message);
     // Fall through — return stale beads_ready rows from Supabase
   }
 
