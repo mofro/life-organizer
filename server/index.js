@@ -16,6 +16,22 @@ const PORT = process.env.PORT || 3001;
 // Generate with: openssl rand -hex 32
 const API_KEY = process.env.BEADS_API_KEY || null;
 
+// Notify collect-world-state after a write so Supabase cache stays current.
+// Fire-and-forget — never blocks the response.
+const COLLECTOR_URL = process.env.COLLECTOR_URL
+  || 'https://life-organizer-mo.netlify.app/.netlify/functions/collect-world-state';
+function notifyCollector() {
+  if (!API_KEY) return;
+  fetch(COLLECTOR_URL, {
+    method: 'POST',
+    headers: { 'x-beads-api-key': API_KEY },
+    signal: AbortSignal.timeout(15_000),
+  }).then(r => {
+    if (!r.ok) console.warn(`[server] collect-world-state: HTTP ${r.status}`);
+    else console.log('[server] collect-world-state notified');
+  }).catch(e => console.warn('[server] collect-world-state notify failed:', e.message));
+}
+
 // --- Startup validation ---
 
 let BD_PATH = null;
@@ -173,6 +189,7 @@ app.post('/api/beads/claim/:id', (req, res) => {
     }
     const push = spawnSync('bd', ['dolt', 'push'], { cwd: BDG_DIR, encoding: 'utf8', timeout: 15_000 });
     if (push.status !== 0) console.warn('[server] bd dolt push after claim failed stdout=%s stderr=%s', (push.stdout || '').trim(), (push.stderr || '').trim());
+    else notifyCollector();
     res.json({ ok: true });
   } catch (e) {
     if (e.status === 400) return res.status(400).json({ error: e.message });
@@ -197,6 +214,7 @@ app.post('/api/beads/close/:id', (req, res) => {
     }
     const push = spawnSync('bd', ['dolt', 'push'], { cwd: BDG_DIR, encoding: 'utf8', timeout: 15_000 });
     if (push.status !== 0) console.warn('[server] bd dolt push after close failed stdout=%s stderr=%s', (push.stdout || '').trim(), (push.stderr || '').trim());
+    else notifyCollector();
     res.json({ ok: true });
   } catch (e) {
     if (e.status === 400) return res.status(400).json({ error: e.message });

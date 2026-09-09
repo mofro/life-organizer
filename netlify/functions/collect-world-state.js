@@ -51,9 +51,17 @@ export default async (req) => {
     return json({ error: `Missing configuration: ${missing.join(', ')}` }, 500);
   }
 
+  // Service-to-service bypass: Railway (and local post-commit) send x-beads-api-key
+  // instead of a user JWT. BEADS_OWNER_USER_ID scopes the Supabase writes correctly.
   let userId;
-  try { userId = await extractUserId(req); }
-  catch { return json({ error: 'Unauthorized' }, 401); }
+  const serviceKey = req.headers.get('x-beads-api-key') ?? '';
+  if (serviceKey && serviceKey === process.env.BEADS_API_KEY) {
+    userId = process.env.BEADS_OWNER_USER_ID;
+    if (!userId) return json({ error: 'BEADS_OWNER_USER_ID not configured' }, 500);
+  } else {
+    try { userId = await extractUserId(req); }
+    catch { return json({ error: 'Unauthorized' }, 401); }
+  }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   const now = new Date();
