@@ -126,7 +126,7 @@ app.get('/api/beads/ready', (_req, res) => {
 app.get('/api/beads/list', (req, res) => {
   try {
     const args = ['list'];
-    const { status, priority } = req.query;
+    const { status, priority, labelPattern } = req.query;
 
     if (status != null && status !== '') {
       if (!VALID_STATUSES.has(status)) return res.status(400).json({ error: 'invalid status' });
@@ -136,6 +136,9 @@ app.get('/api/beads/list', (req, res) => {
       const p = parseInt(priority, 10);
       if (isNaN(p) || p < 0 || p > 4) return res.status(400).json({ error: 'invalid priority' });
       args.push('--priority', String(p));
+    }
+    if (labelPattern != null && labelPattern !== '') {
+      args.push('--label-pattern', labelPattern);
     }
 
     res.json(runBd(args));
@@ -168,6 +171,9 @@ app.post('/api/beads/claim/:id', (req, res) => {
       console.error('[server] bd claim error:', (result.stderr || '').trim());
       return res.status(500).json({ error: 'internal error' });
     }
+    // Push to DoltHub so collect-world-state reads the update on next refresh
+    const push = spawnSync('bd', ['dolt', 'push'], { cwd: BDG_DIR, encoding: 'utf8' });
+    if (push.status !== 0) console.warn('[server] bd dolt push after claim failed:', (push.stderr || '').trim());
     res.json({ ok: true });
   } catch (e) {
     if (e.status === 400) return res.status(400).json({ error: e.message });
@@ -189,6 +195,9 @@ app.post('/api/beads/close/:id', (req, res) => {
       console.error('[server] bd close error:', (result.stderr || '').trim());
       return res.status(500).json({ error: 'internal error' });
     }
+    // Push to DoltHub so collect-world-state reads the update on next refresh
+    const push = spawnSync('bd', ['dolt', 'push'], { cwd: BDG_DIR, encoding: 'utf8' });
+    if (push.status !== 0) console.warn('[server] bd dolt push after close failed:', (push.stderr || '').trim());
     res.json({ ok: true });
   } catch (e) {
     if (e.status === 400) return res.status(400).json({ error: e.message });

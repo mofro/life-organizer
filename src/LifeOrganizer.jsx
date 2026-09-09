@@ -1471,7 +1471,7 @@ function UnifiedTaskList({
                     )}
                   </div>
                   <div className="pl-3">
-                    {tasks.map(task => <BeadsTaskRow key={task.id} task={task} />)}
+                    {tasks.map(task => <BeadsTaskRow key={task.id} task={task} onRefresh={onRefresh} />)}
                   </div>
                 </div>
               ))}
@@ -1481,7 +1481,7 @@ function UnifiedTaskList({
                     <span className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">Standalone Tasks</span>
                   </div>
                   <div className="pl-3">
-                    {standalone.map(task => <BeadsTaskRow key={task.id} task={task} />)}
+                    {standalone.map(task => <BeadsTaskRow key={task.id} task={task} onRefresh={onRefresh} />)}
                   </div>
                 </div>
               )}
@@ -1492,7 +1492,7 @@ function UnifiedTaskList({
         ) : (
           sorted.map(task =>
             task.source === 'beads'
-              ? <BeadsTaskRow key={task.id} task={task} />
+              ? <BeadsTaskRow key={task.id} task={task} onRefresh={onRefresh} />
               : <TaskRow key={task.id} task={task} onStatusChange={onStatusChange} onDelete={onDelete} onSchedule={onSchedule} />
           )
         )}
@@ -1525,10 +1525,16 @@ function CopyCommand({ cmd }) {
   );
 }
 
-function BeadsTaskRow({ task }) {
+function BeadsTaskRow({ task, onRefresh }) {
   const [open, setOpen]           = useState(false);
   const [detail, setDetail]       = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [claiming, setClaiming]   = useState(false);
+  const [claimResult, setClaimResult] = useState(null); // 'ok' | 'err'
+  const [closeExpanded, setCloseExpanded] = useState(false);
+  const [closeReason, setCloseReason] = useState('Done');
+  const [closing, setClosing]     = useState(false);
+  const [closeResult, setCloseResult] = useState(null); // 'ok' | 'err'
 
   const toggle = useCallback(async () => {
     const next = !open;
@@ -1542,6 +1548,42 @@ function BeadsTaskRow({ task }) {
       setDetailLoading(false);
     }
   }, [open, detail, task.beadsId]);
+
+  const handleClaim = useCallback(async (e) => {
+    e.stopPropagation();
+    setClaiming(true);
+    setClaimResult(null);
+    try {
+      const res = await apiFetch('/.netlify/functions/beads-claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: task.beadsId }),
+      });
+      setClaimResult(res.ok ? 'ok' : 'err');
+      if (res.ok && onRefresh) onRefresh();
+    } catch { setClaimResult('err'); }
+    setClaiming(false);
+  }, [task.beadsId, onRefresh]);
+
+  const handleClose = useCallback(async (e) => {
+    e.stopPropagation();
+    if (!closeReason.trim()) return;
+    setClosing(true);
+    setCloseResult(null);
+    try {
+      const res = await apiFetch('/.netlify/functions/beads-close', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: task.beadsId, reason: closeReason.trim() }),
+      });
+      setCloseResult(res.ok ? 'ok' : 'err');
+      if (res.ok) {
+        setCloseExpanded(false);
+        if (onRefresh) onRefresh();
+      }
+    } catch { setCloseResult('err'); }
+    setClosing(false);
+  }, [task.beadsId, closeReason, onRefresh]);
 
   const priorityBadge = { high: 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300', medium: 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300', low: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' };
 
@@ -1602,10 +1644,62 @@ function BeadsTaskRow({ task }) {
             <p className="text-xs text-gray-400">Could not load details.</p>
           )}
 
-          {/* Terminal command helpers — copy to clipboard, run locally via bdg */}
-          <div className="pt-1 flex gap-2 flex-wrap">
-            <CopyCommand cmd={`bdg claim ${task.beadsId}`} />
-            <CopyCommand cmd={`bdg close ${task.beadsId}`} />
+          {/* Action buttons */}
+          <div className="pt-1 space-y-2">
+            <div className="flex gap-2 flex-wrap items-center">
+              {/* Claim */}
+              {task.status !== 'in_progress' && claimResult !== 'ok' && (
+                <button
+                  onClick={handleClaim}
+                  disabled={claiming}
+                  className="text-xs px-2.5 py-1 rounded bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 disabled:opacity-50 transition-colors"
+                >
+                  {claiming ? 'Claiming…' : '▶ Claim'}
+                </button>
+              )}
+              {claimResult === 'ok' && <span className="text-xs text-green-600 dark:text-green-400">✓ Claimed</span>}
+              {claimResult === 'err' && <span className="text-xs text-red-500">✗ Claim failed</span>}
+
+              {/* Close */}
+              {closeResult !== 'ok' && !closeExpanded && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setCloseExpanded(true); }}
+                  className="text-xs px-2.5 py-1 rounded bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                >
+                  ✓ Close
+                </button>
+              )}
+              {closeResult === 'ok' && <span className="text-xs text-green-600 dark:text-green-400">✓ Closed</span>}
+              {closeResult === 'err' && <span className="text-xs text-red-500">✗ Close failed</span>}
+            </div>
+
+            {/* Inline close form */}
+            {closeExpanded && closeResult !== 'ok' && (
+              <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                <input
+                  type="text"
+                  value={closeReason}
+                  onChange={e => setCloseReason(e.target.value)}
+                  placeholder="Reason…"
+                  className="flex-1 text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 focus:outline-none focus:border-blue-400"
+                  onKeyDown={e => { if (e.key === 'Enter') handleClose(e); if (e.key === 'Escape') setCloseExpanded(false); }}
+                  autoFocus
+                />
+                <button
+                  onClick={handleClose}
+                  disabled={closing || !closeReason.trim()}
+                  className="text-xs px-2.5 py-1 rounded bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800 hover:bg-green-100 disabled:opacity-50 transition-colors"
+                >
+                  {closing ? '…' : 'Confirm'}
+                </button>
+                <button
+                  onClick={e => { e.stopPropagation(); setCloseExpanded(false); }}
+                  className="text-xs text-gray-400 hover:text-gray-600"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
