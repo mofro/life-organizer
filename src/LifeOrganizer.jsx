@@ -1284,6 +1284,7 @@ function UnifiedTaskList({
 }) {
   const [tab, setTab]   = useState('beads'); // 'manual' | 'beads' | 'all'
   const [open, setOpen] = useState(false);
+  const [projectFilter, setProjectFilter] = useState(null);
 
   // Auto-open and switch to All tab when a QuickStats filter is applied —
   // the stat buttons are global, so show results across all sources.
@@ -1311,7 +1312,18 @@ function UnifiedTaskList({
     return true;
   });
 
-  const sorted = sortUnified(filtered);
+  const projectCounts = {};
+  for (const t of beadsReady) {
+    if (t.project) projectCounts[t.project] = (projectCounts[t.project] || 0) + 1;
+  }
+  const projectList = Object.entries(projectCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, count]) => ({ name, count }));
+
+  const projectFiltered = projectFilter
+    ? filtered.filter(t => t.source !== 'beads' || t.project === projectFilter)
+    : filtered;
+  const sorted = sortUnified(projectFiltered);
 
   // Badge counts: active items per tab (ignore current status filter so badges always show real totals)
   const countManual = all.filter(t => t.source !== 'beads' && t.status !== 'completed' && t.status !== 'cancelled').length;
@@ -1368,7 +1380,7 @@ function UnifiedTaskList({
           {TABS.map(({ key, label, count }) => (
             <button
               key={key}
-              onClick={() => setTab(key)}
+              onClick={() => { setTab(key); if (key === 'manual') setProjectFilter(null); }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors
                 ${tab === key
                   ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
@@ -1390,6 +1402,40 @@ function UnifiedTaskList({
           </div>
         </div>
 
+        {(tab === 'beads' || tab === 'all') && projectList.length > 1 && (
+          <div className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto border-b border-gray-100 dark:border-gray-800">
+            <button
+              onClick={() => setProjectFilter(null)}
+              className={`flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors
+                ${!projectFilter
+                  ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+                  : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+            >
+              All
+              <span className={`rounded-full px-1 py-0.5 text-xs font-semibold leading-none
+                ${!projectFilter ? 'bg-blue-200 dark:bg-blue-800 text-blue-700 dark:text-blue-200' : 'bg-gray-100 dark:bg-gray-800 text-gray-500'}`}>
+                {beadsReady.length}
+              </span>
+            </button>
+            {projectList.map(({ name, count }) => (
+              <button
+                key={name}
+                onClick={() => setProjectFilter(p => p === name ? null : name)}
+                className={`flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors
+                  ${projectFilter === name
+                    ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+                    : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+              >
+                {name}
+                <span className={`rounded-full px-1 py-0.5 text-xs font-semibold leading-none
+                  ${projectFilter === name ? 'bg-blue-200 dark:bg-blue-800 text-blue-700 dark:text-blue-200' : 'bg-gray-100 dark:bg-gray-800 text-gray-500'}`}>
+                  {count}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="p-4">
         {/* Active filter chip */}
         {filter !== 'active' && filter !== 'all' && (
@@ -1409,7 +1455,7 @@ function UnifiedTaskList({
         )}
 
         {tab === 'beads' ? (() => {
-          const { groups, standalone } = groupByFeature(filtered.filter(t => t.source === 'beads'));
+          const { groups, standalone } = groupByFeature(projectFiltered.filter(t => t.source === 'beads'));
           if (groups.length === 0 && standalone.length === 0) {
             return <p className="text-sm text-gray-400 text-center py-6">{EMPTY.hierarchy}</p>;
           }
