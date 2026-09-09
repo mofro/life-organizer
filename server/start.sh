@@ -27,6 +27,10 @@
 # Railway auto-injects:
 #   PORT                 The port number the server must listen on.
 
+# Pinned bd version — must match local install (schema compatibility).
+# Upgrade both together: bump here + run BD_ALLOW_REMOTE_MIGRATE=1 bd migrate locally + bd dolt push.
+BD_VERSION="${BD_VERSION:-1.0.3}"
+
 BD_DIR="${BEADS_DIR:-/root/beads-global}"
 DOLT_DATA="$BD_DIR/.beads/embeddeddolt"
 DOLT_REMOTE="${DOLT_REMOTE_URL:-https://doltremoteapi.dolthub.com/mofro/beads-global}"
@@ -34,6 +38,9 @@ DOLT_REMOTE="${DOLT_REMOTE_URL:-https://doltremoteapi.dolthub.com/mofro/beads-gl
 echo "[start] BD_DIR=$BD_DIR"
 echo "[start] DOLT_REMOTE=$DOLT_REMOTE"
 echo "[start] PORT=${PORT:-3001}"
+echo "[start] Installing bd@${BD_VERSION}..."
+npm install -g "@beads/bd@${BD_VERSION}" 2>&1 || { echo "[start] FATAL: bd install failed"; exit 1; }
+echo "[start] $(bd --version)"
 
 cd "$BD_DIR" 2>/dev/null || (mkdir -p "$BD_DIR" && cd "$BD_DIR")
 
