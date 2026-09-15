@@ -37,17 +37,17 @@ export default async function handler(req) {
         LIMIT 1000
       `),
       doltQuery(`
-        SELECT issue_id, depends_on_id
+        SELECT issue_id, depends_on_id, type
         FROM dependencies
         LIMIT 2000
       `),
     ]);
 
-    // Build dependency map: issue_id → [{depends_on_id}]
+    // Build dependency map: issue_id → [{depends_on_id, dependency_type}]
     const depMap = {};
     for (const d of depRows) {
       if (!depMap[d.issue_id]) depMap[d.issue_id] = [];
-      depMap[d.issue_id].push({ depends_on_id: d.depends_on_id });
+      depMap[d.issue_id].push({ depends_on_id: d.depends_on_id, dependency_type: d.type });
     }
 
     const issues = issueRows.map(i => ({

@@ -363,7 +363,7 @@ async function load() {
 function effStatus(issue, closedIds) {
   if (issue.status !== 'open') return issue.status;
   const deps = issue.dependencies || [];
-  if (Array.isArray(deps) && deps.length > 0 && deps.some(dep => !closedIds.has(dep.depends_on_id))) return 'blocked';
+  if (Array.isArray(deps) && deps.some(dep => dep.dependency_type === 'blocks' && !closedIds.has(dep.depends_on_id))) return 'blocked';
   return 'open';
 }
 
@@ -529,8 +529,9 @@ function renderDetail(i) {
   const itype = (i.issue_type||i.type||'task').toLowerCase();
   const deps = i.dependencies || [];
   let blockedByHtml = '';
-  if (deps.length > 0) {
-    const items = deps.map(dep => {
+  const blockerDeps = deps.filter(dep => dep.dependency_type === 'blocks');
+  if (blockerDeps.length > 0) {
+    const items = blockerDeps.map(dep => {
       const bid = dep.depends_on_id;
       const blocker = issues.find(x => x.id===bid);
       const bEs = blocker ? effStatus(blocker, closedIds) : 'unknown';
