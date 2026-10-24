@@ -4,6 +4,9 @@ const { execSync } = require('child_process');
 const osa = require('./osascript');
 const { isDefinitelyNewer } = require('./state');
 
+// Beads priority (0-4) → Reminders iCal integer (0/1/5/9)
+const BEADS_TO_REMINDER_PRIORITY = { 0: 1, 1: 1, 2: 5, 3: 9, 4: 9 };
+
 function bdJson(args, cwd) {
   try {
     const raw = execSync(`bd ${args} --json`, { cwd, encoding: 'utf8', timeout: 30000 });
@@ -83,6 +86,14 @@ async function processIssue(issue, config, state, participants, log) {
     // New to Reminders — create it
     log(`Creating reminder for ${issue.id}: "${issue.title}" → [${assignedUsername}]`);
     const uuid = osa.createReminder(listName, expectedTitle, descBody);
+    // Push due date and priority if set
+    if (issue.deadline) {
+      osa.updateReminderDueDate(uuid, listName, issue.deadline);
+    }
+    const icalPriority = BEADS_TO_REMINDER_PRIORITY[issue.priority ?? 2] ?? 5;
+    if (icalPriority !== 5) { // 5=medium is the default; skip the write if it's the default
+      osa.updateReminderPriority(uuid, listName, icalPriority);
+    }
     if (isCompleted) {
       osa.updateReminderCompleted(uuid, listName, true);
     }
@@ -137,6 +148,24 @@ async function processIssue(issue, config, state, participants, log) {
   if (reminder.completed !== isCompleted) {
     log(`Updating reminder completed=${isCompleted} for ${issue.id}`);
     osa.updateReminderCompleted(existingUuid, listName, isCompleted);
+    changed = true;
+  }
+
+  // Due date sync
+  const issueDue = issue.deadline ? issue.deadline.slice(0, 10) : null;
+  const reminderDue = reminder.dueDate ? reminder.dueDate.slice(0, 10) : null;
+  if (issueDue !== reminderDue) {
+    log(`Updating reminder due date for ${issue.id}: ${issueDue || 'cleared'}`);
+    osa.updateReminderDueDate(existingUuid, listName, issueDue);
+    changed = true;
+  }
+
+  // Priority sync
+  const icalPriority = BEADS_TO_REMINDER_PRIORITY[issue.priority ?? 2] ?? 5;
+  const reminderIcal = reminder.priority || 0;
+  if (icalPriority !== reminderIcal) {
+    log(`Updating reminder priority for ${issue.id}: ${icalPriority}`);
+    osa.updateReminderPriority(existingUuid, listName, icalPriority);
     changed = true;
   }
 

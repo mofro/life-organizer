@@ -60,6 +60,10 @@ function getAllRemindersInList(listName) {
     body:       r.body || '',
     completed:  Boolean(r.completed),
     modifiedAt: r.modifiedAt || null,
+    dueDate:    r.dueDate || null,
+    priority:   r.priority || 0,
+    flagged:    Boolean(r.flagged),
+    tags:       Array.isArray(r.tags) ? r.tags : [],
   })).filter(r => r.uuid);
 }
 
@@ -131,6 +135,35 @@ tell application "Reminders"
 end tell`);
 }
 
+// isoDate: YYYY-MM-DD string, or null to clear the due date.
+// Uses the shell date command to convert to a locale-independent AppleScript date.
+function updateReminderDueDate(uuid, listName, isoDate) {
+  if (isoDate === null || isoDate === undefined) {
+    runMultiline(`
+tell application "Reminders"
+  ${lookupClause(uuid, listName)}
+  set due date of target to missing value
+end tell`);
+    return;
+  }
+  const dateOnly = isoDate.slice(0, 10); // YYYY-MM-DD
+  runMultiline(`
+tell application "Reminders"
+  ${lookupClause(uuid, listName)}
+  set dsStr to (do shell script "date -jf '%Y-%m-%d' '${dateOnly}' '+%B %e, %Y'")
+  set due date of target to date dsStr
+end tell`);
+}
+
+// icalPriority: 0=none, 1=high, 5=medium, 9=low (iCal integer encoding).
+function updateReminderPriority(uuid, listName, icalPriority) {
+  runMultiline(`
+tell application "Reminders"
+  ${lookupClause(uuid, listName)}
+  set priority of target to ${icalPriority || 0}
+end tell`);
+}
+
 module.exports = {
   getAllRemindersInList,
   getReminderById,
@@ -138,4 +171,6 @@ module.exports = {
   updateReminderName,
   updateReminderBody,
   updateReminderCompleted,
+  updateReminderDueDate,
+  updateReminderPriority,
 };

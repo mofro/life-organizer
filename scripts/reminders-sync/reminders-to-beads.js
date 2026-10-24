@@ -8,6 +8,9 @@ const { buildParticipantMap } = require('./beads-to-reminders');
 const PREFIX_RE = /^\[([^\]]+)\]\s*/;
 const MS_PER_DAY = 86400000;
 
+// Reminders iCal priority (0/1/5/9) → Beads priority (0-4)
+const REMINDER_TO_BEADS_PRIORITY = { 0: 2, 1: 1, 5: 2, 9: 3 };
+
 function bdJson(args, cwd) {
   try {
     const raw = execSync(`bd ${args} --json`, { cwd, encoding: 'utf8', timeout: 30000 });
@@ -42,7 +45,7 @@ async function syncRemindersToBeads(config, state, log) {
 }
 
 async function processReminder(reminder, config, state, participants, cutoff, cwd, log) {
-  const { uuid, name, body, completed, modifiedAt } = reminder;
+  const { uuid, name, body, completed, modifiedAt, dueDate, priority, tags } = reminder;
   const beadsId = (state.reminderUuidToBeadsId || {})[uuid] || null;
   const listName = config.remindersListName;
 
@@ -84,11 +87,15 @@ async function processReminder(reminder, config, state, participants, cutoff, cw
     log(`Creating Beads issue for new reminder: "${titleBase}" → [${assignedUsername}]`);
 
     const assignee = resolveAssigneeDisplayName(assignedUsername, participants, config);
+    const beadsPriority = REMINDER_TO_BEADS_PRIORITY[priority] ?? 2;
+    const allLabels = [config.syncLabel, ...(tags || [])].filter(Boolean);
     const createArgs = [
       `--title "${escapeArg(titleBase)}"`,
       body ? `--description "${escapeArg(body)}"` : '',
-      `--labels ${config.syncLabel}`,
+      `--labels ${allLabels.join(',')}`,
       `--type task`,
+      `--priority ${beadsPriority}`,
+      dueDate ? `--due "${dueDate.slice(0, 10)}"` : '',
       assignee ? `--assignee "${escapeArg(assignee)}"` : '',
     ].filter(Boolean).join(' ');
 
@@ -155,6 +162,40 @@ async function processReminder(reminder, config, state, participants, cutoff, cw
   if (body !== undefined && body !== (issue.description || '')) {
     log(`Updating Beads description for ${beadsId}`);
     execSync(`bd update ${beadsId} --description "${escapeArg(body)}"`, {
+      cwd, encoding: 'utf8', timeout: 15000,
+    });
+    changed = true;
+  }
+
+  // Priority sync
+  const beadsPriority = REMINDER_TO_BEADS_PRIORITY[priority] ?? 2;
+  if (beadsPriority !== (issue.priority ?? 2)) {
+    log(`Updating Beads priority for ${beadsId}: ${beadsPriority}`);
+    execSync(`bd update ${beadsId} --priority ${beadsPriority}`, {
+      cwd, encoding: 'utf8', timeout: 15000,
+    });
+    changed = true;
+  }
+
+  // Due date sync
+  const issueDue = issue.deadline ? issue.deadline.slice(0, 10) : null;
+  const reminderDue = dueDate ? dueDate.slice(0, 10) : null;
+  if (reminderDue !== issueDue) {
+    log(`Updating Beads due date for ${beadsId}: ${reminderDue || 'cleared'}`);
+    const dueArg = reminderDue ? `--due "${reminderDue}"` : '--due ""';
+    execSync(`bd update ${beadsId} ${dueArg}`, {
+      cwd, encoding: 'utf8', timeout: 15000,
+    });
+    changed = true;
+  }
+
+  // Tag sync: add any new tags from Reminders as Beads labels (never remove Beads-only labels)
+  const existingLabels = new Set(issue.labels || []);
+  const newTags = (tags || []).filter(t => t && !existingLabels.has(t));
+  if (newTags.length > 0) {
+    log(`Adding tag labels to ${beadsId}: ${newTags.join(', ')}`);
+    const addArgs = newTags.map(t => `--add-label "${escapeArg(t)}"`).join(' ');
+    execSync(`bd update ${beadsId} ${addArgs}`, {
       cwd, encoding: 'utf8', timeout: 15000,
     });
     changed = true;

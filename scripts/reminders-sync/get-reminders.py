@@ -77,6 +77,7 @@ def read_reminders(db_path, list_name):
     try:
         rows = db.execute(
             '''SELECT
+                 Z_PK,
                  ZCKIDENTIFIER,
                  ZTITLE,
                  ZNOTES,
@@ -94,10 +95,27 @@ def read_reminders(db_path, list_name):
         db.close()
         return None
 
+    # Batch-fetch hashtags for all reminders in this list via ZREMCDOBJECT join.
+    # ZREMCDOBJECT rows with ZHASHTAGLABEL + ZREMINDER3 are the reminder↔tag join.
+    tags_by_pk = {}
+    try:
+        tag_rows = db.execute(
+            '''SELECT o.ZREMINDER3, h.ZCANONICALNAME
+               FROM ZREMCDOBJECT o
+               JOIN ZREMCDHASHTAGLABEL h ON o.ZHASHTAGLABEL = h.Z_PK
+               JOIN ZREMCDREMINDER r ON o.ZREMINDER3 = r.Z_PK
+               WHERE r.ZLIST=? AND o.ZHASHTAGLABEL IS NOT NULL''',
+            (list_pk,)
+        ).fetchall()
+        for reminder_pk, tag_name in tag_rows:
+            tags_by_pk.setdefault(reminder_pk, []).append(tag_name)
+    except Exception:
+        pass  # Tags are best-effort; missing is fine
+
     db.close()
 
     result = []
-    for uuid, title, notes, completed, mod_ts, due_ts, priority, flagged in rows:
+    for pk, uuid, title, notes, completed, mod_ts, due_ts, priority, flagged in rows:
         if not uuid:
             continue
         result.append({
@@ -109,6 +127,7 @@ def read_reminders(db_path, list_name):
             'dueDate':    apple_ts_to_iso(due_ts),
             'priority':   priority or 0,
             'flagged':    bool(flagged),
+            'tags':       tags_by_pk.get(pk, []),
         })
     return result
 
