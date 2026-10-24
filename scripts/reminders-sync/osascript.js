@@ -67,32 +67,11 @@ function getAllRemindersInList(listName) {
   })).filter(r => r.uuid);
 }
 
-// Returns single reminder or null
+// Returns single reminder or null.
+// Uses SQLite (getAllRemindersInList) to avoid ETIMEDOUT on shared iCloud lists.
 function getReminderById(uuid, listName) {
-  const script = `
-tell application "Reminders"
-  ${lookupClause(uuid, listName)}
-  set tBody to body of target
-  if tBody is missing value then set tBody to ""
-  return (name of target) & "|||" & tBody & "|||" & ((completed of target) as string) & "|||" & ((modification date of target) as string)
-end tell`;
-
-  let raw;
-  try {
-    raw = runMultiline(script);
-  } catch (_) {
-    return null;
-  }
-
-  if (!raw) return null;
-  const parts = raw.split('|||');
-  return {
-    uuid,
-    name: (parts[0] || '').trim(),
-    body: (parts[1] || '').trim(),
-    completed: (parts[2] || '').trim() === 'true',
-    modifiedAt: (parts[3] || '').trim() || null,
-  };
+  const all = getAllRemindersInList(listName);
+  return all.find(r => r.uuid === uuid) || null;
 }
 
 // Returns UUID of new reminder.
