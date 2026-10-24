@@ -1,0 +1,13 @@
+{
+  "username": "mo",
+  "displayName": "Maurice Gaston",
+  "beadsOwner": "g.mofro@gmail.com",
+  "remindersListName": "Family",
+  "syncLabel": "todo",
+  "usernameOverrides": {
+    "__comment": "Optional: override auto-derived username for a specific iCloud email",
+    "someone@icloud.com": "their-short-name"
+  },
+  "beadsGlobalPath": "/Users/mo/Code/life-organizer",
+  "verbose": false
+}

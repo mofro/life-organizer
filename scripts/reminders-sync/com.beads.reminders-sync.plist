@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.beads.reminders-sync</string>
+    <key>ProgramArguments</key>
+    <array>
+        <!-- Replace with your actual node path: `which node` or `node -e 'console.log(process.execPath)'` -->
+        <string>/Users/mo/.nvm/versions/node/v22.21.1/bin/node</string>
+        <string>/Users/mo/Code/life-organizer/scripts/reminders-sync/sync.js</string>
+        <string>--direction=reminders-to-beads</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/mo/Code/life-organizer</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>/Users/mo</string>
+        <key>PATH</key>
+        <string>/Users/mo/.nvm/versions/node/v22.21.1/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>StartInterval</key>
+    <integer>60</integer>
+    <key>StandardOutPath</key>
+    <string>/tmp/beads-reminders-sync.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/beads-reminders-sync.log</string>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
