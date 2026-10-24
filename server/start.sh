@@ -94,5 +94,7 @@ else
   echo "[start] WARNING: DOLT_CREDS_JWK not set — dolt push will fail." >&2
 fi
 
+export BEADS_GLOBAL_DIR="$BD_DIR"
+export BEADS_DIR="$BD_DIR"
 echo "[start] Launching Beads Service..."
 exec node /app/server/index.js
